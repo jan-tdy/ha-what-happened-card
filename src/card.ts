@@ -249,9 +249,11 @@ export class WhatHappenedCard extends LitElement {
       (events) => {
         if (token !== this._subToken) return;
         // Filter before buffering so the size cap never evicts entries that would match.
+        // Unavailable/unknown stay in the buffer: the timeline needs them to recognize a
+        // return to the previous state, and hides them itself.
         const cfg = this._config;
         for (const event of events) {
-          if (cfg && !passesFilters(event, cfg, this._allowed, this._hass)) continue;
+          if (cfg && !passesFilters(event, cfg, this._allowed, this._hass, false, true)) continue;
           this._entries.set(entryKey(event), event);
         }
         if (this._entries.size > MAX_BUFFER) this._trimBuffer();

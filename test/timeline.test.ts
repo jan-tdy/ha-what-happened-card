@@ -267,3 +267,103 @@ describe("event entities", () => {
     expect(two[0].details).toEqual(["latest: detected a person"]);
   });
 });
+
+describe("returning from unavailable", () => {
+  const h = makeHass([
+    state("binary_sensor.boiler_fault", "off", {
+      friendly_name: "Boiler fault",
+      device_class: "problem",
+    }),
+    state("climate.thermostat", "heat", { friendly_name: "Thermostat" }),
+    state("light.kitchen", "on", { friendly_name: "Kitchen light" }),
+  ]);
+  // A cloud thermostat dropping out now and then, as seen in a real log: the derived problem
+  // sensor follows it. Each return is in the state from before the gap.
+  const flapping = [
+    entry({ ago: 7200, entity_id: "binary_sensor.boiler_fault", state: "off" }),
+    entry({
+      ago: 3600,
+      entity_id: "binary_sensor.boiler_fault",
+      state: "unavailable",
+      context_entity_id: "climate.thermostat",
+    }),
+    entry({ ago: 3540, entity_id: "binary_sensor.boiler_fault", state: "off" }),
+    entry({ ago: 1800, entity_id: "binary_sensor.boiler_fault", state: "unavailable" }),
+    entry({ ago: 1795, entity_id: "binary_sensor.boiler_fault", state: "off" }),
+    entry({ ago: 7000, entity_id: "climate.thermostat", state: "heat" }),
+    entry({ ago: 3600, entity_id: "climate.thermostat", state: "unavailable" }),
+    entry({ ago: 3540, entity_id: "climate.thermostat", state: "heat" }),
+  ];
+  const verbs = (c: Partial<WhatHappenedConfig> = {}) =>
+    flat(buildTimeline(h, flapping, cfg(c), NOW)).map((i) => `${i.entityId} ${i.verb}`);
+
+  it("drops a return to the state from before the gap", () => {
+    expect(verbs()).toEqual([
+      "climate.thermostat changed to Heat",
+      "binary_sensor.boiler_fault problem resolved",
+    ]);
+    const items = flat(buildTimeline(h, flapping, cfg(), NOW));
+    expect(items.map((i) => i.when)).toEqual([NOW - 7_000_000, NOW - 7_200_000]);
+  });
+
+  it("keeps a return to a different state", () => {
+    const changed = [
+      entry({ ago: 600, entity_id: "light.kitchen", state: "off" }),
+      entry({ ago: 300, entity_id: "light.kitchen", state: "unavailable" }),
+      entry({ ago: 200, entity_id: "light.kitchen", state: "on" }),
+    ];
+    expect(flat(buildTimeline(h, changed, cfg(), NOW)).map((i) => i.verb)).toEqual([
+      "was turned on",
+      "was turned off",
+    ]);
+  });
+
+  it("keeps a return with a known cause", () => {
+    const caused = [
+      entry({ ago: 600, entity_id: "light.kitchen", state: "on" }),
+      entry({ ago: 300, entity_id: "light.kitchen", state: "unavailable" }),
+      entry({ ago: 200, entity_id: "light.kitchen", state: "on", context_user_id: "u1" }),
+    ];
+    expect(flat(buildTimeline(h, caused, cfg({ collapse_repeats: false }), NOW))).toHaveLength(2);
+  });
+
+  it("drops a return that only follows another entity coming back", () => {
+    const derived = [
+      entry({ ago: 600, entity_id: "binary_sensor.boiler_fault", state: "off" }),
+      entry({
+        ago: 300,
+        entity_id: "binary_sensor.boiler_fault",
+        state: "unavailable",
+        context_entity_id: "climate.thermostat",
+      }),
+      entry({
+        ago: 200,
+        entity_id: "binary_sensor.boiler_fault",
+        state: "off",
+        context_entity_id: "climate.thermostat",
+        context_state: "heat",
+      } as Parameters<typeof entry>[0]),
+    ];
+    expect(flat(buildTimeline(h, derived, cfg(), NOW)).map((i) => i.when)).toEqual([NOW - 600_000]);
+  });
+
+  it("works on the live buffer, which is filtered as entries arrive", () => {
+    // The card filters each entry before buffering it; gaps must survive that step.
+    const buffered = flapping.filter((e) => passesFilters(e, cfg(), undefined, h, false, true));
+    expect(buffered.filter((e) => e.state === "unavailable")).toHaveLength(3);
+    expect(flat(buildTimeline(h, buffered, cfg(), NOW))).toHaveLength(2);
+    expect(passesFilters(flapping[1], cfg(), undefined, h)).toBe(false);
+  });
+
+  it("keeps the first return when the state before the gap is outside the window", () => {
+    const edge = [
+      entry({ ago: 300, entity_id: "light.kitchen", state: "unavailable" }),
+      entry({ ago: 200, entity_id: "light.kitchen", state: "on" }),
+    ];
+    expect(flat(buildTimeline(h, edge, cfg(), NOW))).toHaveLength(1);
+  });
+
+  it("shows everything when hide_unavailable is off", () => {
+    expect(verbs({ hide_unavailable: false, collapse_repeats: false })).toHaveLength(8);
+  });
+});
