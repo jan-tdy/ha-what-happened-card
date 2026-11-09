@@ -542,4 +542,24 @@ describe("a script with nothing to group", () => {
     expect(out).toHaveLength(1);
     expect(out[0].verb).toBe("ran");
   });
+
+  it("drops the closing off row however long the script ran", () => {
+    const hass = makeHass([state("script.radio", "off", { friendly_name: "Radio" })]);
+    const mk = (verb: string, when: number) =>
+      ({
+        key: `k${when}`,
+        when,
+        entityId: "script.radio",
+        domain: "script",
+        name: "Radio",
+        verb,
+        tone: "neutral",
+        icon: "mdi:script-text",
+        isPerson: false,
+        isRun: false,
+        count: 1,
+      }) as never;
+    const out = groupEffects(hass, [mk("was turned off", 3_600_000), mk("was turned on", 0)]);
+    expect(out).toHaveLength(1);
+  });
 });

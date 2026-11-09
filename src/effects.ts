@@ -282,10 +282,7 @@ function tellScriptsAsRuns(items: TimelineItem[]): TimelineItem[] {
     if (item.verb === "was turned on") {
       return { ...item, verb: "ran", stateValue: undefined, tone: "active" as const };
     }
-    const opened = ons.some(
-      (o) =>
-        (o.entityId ?? o.name) === key && o.when <= item.when && item.when - o.when <= 5 * 60_000,
-    );
+    const opened = ons.some((o) => (o.entityId ?? o.name) === key && o.when <= item.when);
     if (opened) drop.add(item);
     return item;
   });

@@ -1867,9 +1867,7 @@ function ms(t) {
   return t.map((o) => {
     if (!e.includes(o)) return o;
     const r = o.entityId ?? o.name;
-    return o.verb === "was turned on" ? { ...o, verb: "ran", stateValue: void 0, tone: "active" } : (n.some(
-      (c) => (c.entityId ?? c.name) === r && c.when <= o.when && o.when - c.when <= 5 * 6e4
-    ) && s.add(o), o);
+    return o.verb === "was turned on" ? { ...o, verb: "ran", stateValue: void 0, tone: "active" } : (n.some((c) => (c.entityId ?? c.name) === r && c.when <= o.when) && s.add(o), o);
   }).filter((o) => !s.has(o));
 }
 const _s = 6e4;
