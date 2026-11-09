@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { groupEffects } from "../src/effects";
 import { buildTimeline } from "../src/timeline";
 import type { ActionEvent } from "../src/trace";
 import type { LogbookEntry, WhatHappenedConfig } from "../src/types";
@@ -517,5 +518,28 @@ describe("a script that a person ran", () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("FIND Phone");
     expect(result[0].effects).toHaveLength(1);
+  });
+});
+
+describe("a script with nothing to group", () => {
+  it("is one 'ran' entry, not turned on and off", () => {
+    const hass = makeHass([state("script.radio", "off", { friendly_name: "Radio" })]);
+    const mk = (verb: string, when: number) =>
+      ({
+        key: `k${when}`,
+        when,
+        entityId: "script.radio",
+        domain: "script",
+        name: "Radio",
+        verb,
+        tone: "neutral",
+        icon: "mdi:script-text",
+        isPerson: false,
+        isRun: false,
+        count: 1,
+      }) as never;
+    const out = groupEffects(hass, [mk("was turned off", 2000), mk("was turned on", 1000)]);
+    expect(out).toHaveLength(1);
+    expect(out[0].verb).toBe("ran");
   });
 });
