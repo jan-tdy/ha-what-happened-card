@@ -263,5 +263,28 @@ export function groupEffects(hass: HomeAssistant, items: TimelineItem[]): Timeli
     }
   }
   void hass;
-  return removed.size ? [...items.filter((i) => !removed.has(i)), ...added] : items;
+  const grouped = removed.size ? [...items.filter((i) => !removed.has(i)), ...added] : items;
+  return tellScriptsAsRuns(grouped);
+}
+
+/**
+ * A script that has nothing visible to group still ran; it did not "turn on" and "turn off".
+ * The "on" row becomes "ran", the "off" row that closes it is dropped.
+ */
+function tellScriptsAsRuns(items: TimelineItem[]): TimelineItem[] {
+  const states = items.filter(isScriptState);
+  if (!states.length) return items;
+  const ons = states.filter((s) => s.verb === "was turned on");
+  const drop = new Set<TimelineItem>();
+  const out = items.map((item) => {
+    if (!states.includes(item)) return item;
+    const key = item.entityId ?? item.name;
+    if (item.verb === "was turned on") {
+      return { ...item, verb: "ran", stateValue: undefined, tone: "active" as const };
+    }
+    const opened = ons.some((o) => (o.entityId ?? o.name) === key && o.when <= item.when);
+    if (opened) drop.add(item);
+    return item;
+  });
+  return out.filter((i) => !drop.has(i));
 }
