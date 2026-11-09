@@ -75,6 +75,8 @@ function domainOf(entry: LogbookEntry): string {
   return entry.domain ?? entry.entity_id?.split(".")[0] ?? "homeassistant";
 }
 
+const GAP_STATES = new Set(["unavailable", "unknown"]);
+
 /** Config filters shared by the live buffer (ingest) and the timeline builder. */
 export function passesFilters(
   entry: LogbookEntry,
@@ -83,6 +85,11 @@ export function passesFilters(
   hass?: HomeAssistant,
   /** Skip the "is it worth showing" checks (an entry that started an automation). */
   forceMeaningful = false,
+  /**
+   * Let `unavailable` / `unknown` through even with `hide_unavailable`. The live buffer keeps
+   * them so `recoveryKeys` can tell a return to the previous state; the timeline still hides them.
+   */
+  keepGaps = false,
 ): boolean {
   const domain = domainOf(entry);
   if (
@@ -108,8 +115,47 @@ export function passesFilters(
     return false;
   }
   const hideUnavailable = config.hide_unavailable ?? DEFAULTS.hide_unavailable;
-  if (hideUnavailable && (entry.state === "unavailable" || entry.state === "unknown")) return false;
+  if (hideUnavailable && !keepGaps && GAP_STATES.has(entry.state ?? "")) return false;
   return true;
+}
+
+/**
+ * Keys of entries that only report an entity coming back after `unavailable` or `unknown` in
+ * the state it had before the gap (a cloud integration reconnecting, a device rebooting).
+ * Nothing changed, so with `hide_unavailable` such a line would read as an event that never
+ * happened, like "problem resolved" for a problem that was never there. A return that a person
+ * or an action caused is kept, and so is the first return in the window when the state before
+ * it is unknown. A return that only follows another entity (a template sensor coming back with
+ * its source) is still no change.
+ */
+function causedByAction(e: LogbookEntry): boolean {
+  return Boolean(e.context_user_id || e.context_service || e.context_event_type);
+}
+
+export function recoveryKeys(entries: Iterable<LogbookEntry>): Set<string> {
+  const byEntity = new Map<string, LogbookEntry[]>();
+  for (const e of entries) {
+    if (!e.entity_id || e.state === undefined || e.message !== undefined) continue;
+    const list = byEntity.get(e.entity_id);
+    if (list) list.push(e);
+    else byEntity.set(e.entity_id, [e]);
+  }
+  const keys = new Set<string>();
+  for (const list of byEntity.values()) {
+    list.sort((a, b) => a.when - b.when);
+    let before: string | undefined;
+    let inGap = false;
+    for (const e of list) {
+      if (GAP_STATES.has(e.state!)) {
+        inGap = true;
+        continue;
+      }
+      if (inGap && before === e.state && !causedByAction(e)) keys.add(entryKey(e));
+      before = e.state;
+      inGap = false;
+    }
+  }
+  return keys;
 }
 
 function toItem(
@@ -276,6 +322,8 @@ export function buildTimeline(
     .filter((e) => e.domain === "homeassistant" && e.message === "started")
     .map((e) => e.when);
   const picked = pickedEntities(config, hass);
+  const recovered =
+    (config.hide_unavailable ?? DEFAULTS.hide_unavailable) ? recoveryKeys(list) : new Set<string>();
 
   // Entries that started an automation or script a moment later, for example the press of a
   // button that is not worth a line on its own. They are kept so the action can be headed by
@@ -329,6 +377,7 @@ export function buildTimeline(
       }
       return false;
     })
+    .filter((e) => !recovered.has(entryKey(e)))
     .filter((e) => !restartNoise(e))
     .filter((e) => !isStandIn(e, standIns))
     .sort((a, b) => b.when - a.when);

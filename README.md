@@ -75,7 +75,7 @@ exclude_domains:
 | `automation_runs`    | `actions`      | `actions`, `all` or `none` (see below)                                                                         |
 | `chatty`             | `summarize`    | Very frequent entities: `summarize`, `hide` or `show`                                                          |
 | `show_diagnostic`    | `false`        | Include diagnostic, configuration and hidden entities                                                          |
-| `hide_unavailable`   | `true`         | Hide `unavailable` / `unknown` states                                                                          |
+| `hide_unavailable`   | `true`         | Hide `unavailable` / `unknown` states, and an entity coming back from them in the state it had before          |
 | `collapse_repeats`   | `true`         | Merge rapid repeats of the same event (shown as ×N)                                                            |
 
 The "why" comes from the Home Assistant logbook context. Changes made physically on a device have no context, so they show without a cause line.
