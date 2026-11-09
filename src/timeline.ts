@@ -173,7 +173,13 @@ function toItem(
   let cause = resolveCause(hass, entry);
 
   if (entry.state !== undefined && entry.message === undefined) {
-    ({ verb, tone } = describeState(hass, domain, entry.entity_id, entry.state));
+    ({ verb, tone } = describeState(
+      hass,
+      domain,
+      entry.entity_id,
+      entry.state,
+      entry.attributes?.event_type,
+    ));
   } else {
     const message = entry.message ?? "did something";
     const triggered = message.match(/^triggered(?: by (.+))?$/);
@@ -360,7 +366,31 @@ export function buildTimeline(
     return restarts.some((t) => e.when >= t - 30 && e.when <= t + 180);
   };
 
+  // An event entity's state is the moment it fired, so the same state twice is one event
+  // reported more than once (some integrations write it for every attribute update). The
+  // earliest copy is kept, whatever order the buffer is in.
+  const repeatedEvents = new Set<LogbookEntry>();
+  const firstEvent = new Map<string, LogbookEntry>();
+  for (const e of list) {
+    if (
+      domainOf(e) !== "event" ||
+      !e.entity_id ||
+      e.state === undefined ||
+      e.state === "unavailable" ||
+      e.state === "unknown"
+    ) {
+      continue;
+    }
+    const key = `${e.entity_id}|${e.state}`;
+    const first = firstEvent.get(key);
+    if (!first) firstEvent.set(key, e);
+    else if (e.when < first.when) {
+      repeatedEvents.add(first);
+      firstEvent.set(key, e);
+    } else repeatedEvents.add(e);
+  }
   const sorted = list
+    .filter((e) => !repeatedEvents.has(e))
     .filter((e) => {
       const ms = e.when * 1000;
       return ms >= since && ms <= now + FUTURE_TOLERANCE_MS;

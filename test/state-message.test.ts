@@ -56,4 +56,32 @@ describe("describeState", () => {
     expect(describeState(hass, "sensor", "sensor.temp", "23").verb).toBe("changed to 23 °C");
     expect(describeState(hass, "select", undefined, "auto_mode").verb).toBe("changed to Auto mode");
   });
+
+  it("names what an event entity reported", () => {
+    const h = makeHass([
+      state("event.door_ding", "2026-11-08T10:00:00.000+00:00", { device_class: "doorbell" }),
+      state("event.cam_motion", "2026-11-08T10:00:00.000+00:00", { device_class: "motion" }),
+      state("event.voice_button", "2026-11-08T10:00:00.000+00:00", { device_class: "button" }),
+      state("event.backup", "2026-11-08T10:00:00.000+00:00", {}),
+    ]);
+    const ts = "2026-11-08T10:00:00.000+00:00";
+    expect(describeState(h, "event", "event.door_ding", ts, "ring").verb).toBe("rang");
+    expect(describeState(h, "event", "event.cam_motion", ts, "camera_person").verb).toBe(
+      "detected a person",
+    );
+    expect(describeState(h, "event", "event.voice_button", ts, "double_press").verb).toBe(
+      "was double-pressed",
+    );
+    expect(describeState(h, "event", "event.backup", ts, "completed")).toEqual({
+      verb: "reported completed",
+      tone: "active",
+    });
+    expect(describeState(h, "event", "event.backup", ts, "failed").tone).toBe("alert");
+    // Without an event type in the entry, the device class is the best guess.
+    expect(describeState(h, "event", "event.door_ding", ts).verb).toBe("rang");
+    expect(describeState(h, "event", "event.backup", ts).verb).toBe("detected an event");
+    expect(describeState(h, "event", "event.backup", "unavailable").verb).toBe(
+      "became unavailable",
+    );
+  });
 });

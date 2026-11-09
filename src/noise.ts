@@ -60,12 +60,22 @@ export function summarizeChatty(
     }
     if (emitted.has(key) || mode === "hide") continue;
     emitted.add(key);
-    const n = groups.get(key)!.length; // `item` is the newest because input is sorted newest first
+    const group = groups.get(key)!;
+    const n = group.length; // `item` is the newest because input is sorted newest first
+    // An event entity only fires, so "changed" says nothing: name what it reported.
+    const event = item.domain === "event";
+    const sameVerb = event && group.every((g) => g.verb === item.verb);
     out.push({
       ...item,
       key: `chatty|${key}`,
-      verb: item.isRun ? `was triggered ${n} times` : `changed ${n} times`,
-      details: item.isRun ? undefined : [`latest: ${truncate(item.verb, 70)}`],
+      verb: item.isRun
+        ? `was triggered ${n} times`
+        : sameVerb
+          ? `${item.verb} ${n} times`
+          : event
+            ? `fired ${n} times`
+            : `changed ${n} times`,
+      details: item.isRun || sameVerb ? undefined : [`latest: ${truncate(item.verb, 70)}`],
       isRun: false,
       count: 1,
       rich: true,

@@ -75,6 +75,8 @@ export interface LogbookEntry {
   context_message?: string;
   context_name?: string;
   context_source?: string;
+  /** State attributes the logbook exposes; today only `event_type` of an event entity. */
+  attributes?: { event_type?: string };
 }
 
 export interface TargetConfig {

@@ -194,6 +194,80 @@ describe("chain merging", () => {
   });
 });
 
+describe("event entities", () => {
+  const h = makeHass([
+    state("event.doorbell_ding", "2026-11-08T11:00:00.000+00:00", {
+      friendly_name: "Doorbell",
+      device_class: "doorbell",
+      event_type: "ring",
+    }),
+  ]);
+  const fired = "2026-11-08T11:00:00.000+00:00";
+
+  it("shows one entry for an event the logbook reports several times", () => {
+    // Seen in a real log: one doorbell press written three times with the same state.
+    const entries = [1, 2, 3].map(() =>
+      entry({
+        ago: 3600,
+        entity_id: "event.doorbell_ding",
+        state: fired,
+        attributes: { event_type: "ring" },
+      }),
+    );
+    const items = flat(buildTimeline(h, entries, cfg(), NOW));
+    expect(items).toHaveLength(1);
+    expect(items[0].verb).toBe("rang");
+    expect(items[0].count).toBe(1);
+  });
+
+  it("keeps the earliest copy of a repeated event, whatever the buffer order", () => {
+    const copy = (ago: number) =>
+      entry({ ago, entity_id: "event.doorbell_ding", state: fired, context_id: `c${ago}` });
+    const items = flat(buildTimeline(h, [copy(3000), copy(3600), copy(3300)], cfg(), NOW));
+    expect(items.map((i) => i.when)).toEqual([NOW - 3_600_000]);
+  });
+
+  it("keeps separate events apart", () => {
+    const entries = [
+      entry({ ago: 3600, entity_id: "event.doorbell_ding", state: fired }),
+      entry({
+        ago: 1800,
+        entity_id: "event.doorbell_ding",
+        state: "2026-11-08T11:30:00.000+00:00",
+      }),
+    ];
+    const items = flat(buildTimeline(h, entries, cfg({ collapse_repeats: false }), NOW));
+    expect(items.map((i) => i.verb)).toEqual(["rang", "rang"]);
+  });
+
+  it("summarizes a busy event entity by what it reported", () => {
+    const motion = makeHass([
+      state("event.cam", "2026-11-08T11:00:00.000+00:00", {
+        friendly_name: "Garden camera",
+        device_class: "motion",
+      }),
+    ]);
+    const fire = (i: number, type: string) =>
+      entry({
+        ago: 600 * (i + 1),
+        entity_id: "event.cam",
+        state: `2026-11-08T10:${String(i).padStart(2, "0")}:00.000+00:00`,
+        attributes: { event_type: type },
+      });
+    const same = Array.from({ length: 12 }, (_, i) => fire(i, "camera_motion"));
+    const one = flat(buildTimeline(motion, same, cfg(), NOW));
+    expect(one.map((i) => i.verb)).toEqual(["detected motion 12 times"]);
+    expect(one[0].details).toBeUndefined();
+
+    const mixed = same.map((e, i) =>
+      i === 0 ? { ...e, attributes: { event_type: "camera_person" } } : e,
+    );
+    const two = flat(buildTimeline(motion, mixed, cfg(), NOW));
+    expect(two.map((i) => i.verb)).toEqual(["fired 12 times"]);
+    expect(two[0].details).toEqual(["latest: detected a person"]);
+  });
+});
+
 describe("returning from unavailable", () => {
   const h = makeHass([
     state("binary_sensor.boiler_fault", "off", {

@@ -120,7 +120,51 @@ const ON_OFF_DOMAINS = new Set([
 ]);
 
 const PRESENCE_DOMAINS = new Set(["person", "device_tracker"]);
-const PRESS_DOMAINS = new Set(["button", "input_button", "event", "doorbell"]);
+const PRESS_DOMAINS = new Set(["button", "input_button", "doorbell"]);
+
+/** Verbs for the event types the core integrations use most; anything else is named as is. */
+const EVENT_TYPES: Record<string, [string, Tone]> = {
+  ring: ["rang", "active"],
+  motion: ["detected motion", "active"],
+  camera_motion: ["detected motion", "active"],
+  person: ["detected a person", "active"],
+  camera_person: ["detected a person", "active"],
+  sound: ["detected sound", "active"],
+  camera_sound: ["detected sound", "active"],
+  press: ["was pressed", "active"],
+  initial_press: ["was pressed", "active"],
+  single_press: ["was pressed", "active"],
+  short_press: ["was pressed", "active"],
+  double_press: ["was double-pressed", "active"],
+  triple_press: ["was triple-pressed", "active"],
+  long_press: ["was long-pressed", "active"],
+};
+
+/** What an event entity's device class says when the entry carries no event type. */
+const EVENT_CLASSES: Record<string, string> = {
+  doorbell: "rang",
+  motion: "detected motion",
+  button: "was pressed",
+};
+
+/**
+ * An event entity's state is only the time it fired. What happened is its event type, which
+ * the logbook reports per entry (`attributes.event_type`); without it, the device class is the
+ * best guess.
+ */
+function describeEvent(deviceClass: string | undefined, eventType: string | undefined) {
+  if (eventType) {
+    const known = EVENT_TYPES[eventType];
+    if (known) return { verb: known[0], tone: known[1] };
+    const text = eventType.replace(/_/g, " ");
+    return {
+      verb: `reported ${text}`,
+      tone: (/(error|fail)/i.test(text) ? "alert" : "active") as Tone,
+    };
+  }
+  const byClass = deviceClass ? EVENT_CLASSES[deviceClass] : undefined;
+  return { verb: byClass ?? "detected an event", tone: "active" as Tone };
+}
 
 function prettify(value: string): string {
   const text = value.replace(/_/g, " ");
@@ -158,12 +202,16 @@ export function describeState(
   domain: string,
   entityId: string | undefined,
   state: string,
+  /** For event entities: the event type of this entry, from the logbook. */
+  eventType?: string,
 ): StateDescription {
   if (state === "unavailable") return { verb: "became unavailable", tone: "unavailable" };
   if (state === "unknown") return { verb: "became unknown", tone: "neutral" };
 
   const stateObj = entityId ? hass.states[entityId] : undefined;
   const deviceClass = stateObj?.attributes.device_class;
+
+  if (domain === "event") return describeEvent(deviceClass, eventType);
 
   if (PRESENCE_DOMAINS.has(domain)) {
     if (state === "home") return { verb: "arrived home", tone: "active" };
