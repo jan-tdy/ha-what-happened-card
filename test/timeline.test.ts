@@ -139,6 +139,226 @@ describe("buildTimeline", () => {
   });
 });
 
+describe("group_device_actions", () => {
+  // A device confirmed (via the registry) to have no device_id at all still groups its own
+  // different actions by entity_id; a sparse registry entry (device_id simply not set, as most
+  // of this file's other fixtures do) does not, so existing behavior elsewhere is unaffected.
+  const h = makeHass(
+    [
+      state("sensor.laptop_cpu", "10", { friendly_name: "Laptop CPU" }),
+      state("sensor.laptop_battery", "90", { friendly_name: "Laptop battery" }),
+      state("binary_sensor.laptop_active", "on", { friendly_name: "Laptop active" }),
+      state("light.kitchen", "on", { friendly_name: "Kitchen light" }),
+      state("sensor.standalone", "1", { friendly_name: "Standalone sensor" }),
+    ],
+    {
+      entities: {
+        "sensor.laptop_cpu": { entity_id: "sensor.laptop_cpu", device_id: "laptop" },
+        "sensor.laptop_battery": { entity_id: "sensor.laptop_battery", device_id: "laptop" },
+        "binary_sensor.laptop_active": {
+          entity_id: "binary_sensor.laptop_active",
+          device_id: "laptop",
+        },
+        "sensor.standalone": { entity_id: "sensor.standalone", device_id: null },
+      },
+      devices: { laptop: { id: "laptop" } },
+    },
+  );
+  const build = (e: ReturnType<typeof entry>[], c: Partial<WhatHappenedConfig> = {}) =>
+    flat(buildTimeline(h, e, cfg({ activity: "everything", ...c }), NOW));
+
+  const cpu = entry({
+    ago: 100,
+    entity_id: "sensor.laptop_cpu",
+    name: "Laptop CPU",
+    state: "80",
+  });
+  const battery = entry({
+    ago: 90,
+    entity_id: "sensor.laptop_battery",
+    name: "Laptop battery",
+    state: "89",
+  });
+  const active = entry({
+    ago: 80,
+    entity_id: "binary_sensor.laptop_active",
+    name: "Laptop active",
+    state: "off",
+  });
+  const light = entry({ ago: 70, entity_id: "light.kitchen", name: "Kitchen light", state: "off" });
+
+  it("folds several different actions of one device's entities into one grouped entry", () => {
+    const items = build([cpu, battery, active, light]);
+    expect(items).toHaveLength(2);
+    const group = items.find((i) => i.groupCount)!;
+    expect(group.groupCount).toBe(3);
+    expect(group.name).toBe("Laptop active"); // the latest action heads the entry
+    expect(group.group?.map((g) => g.name)).toEqual(["Laptop CPU", "Laptop battery"]); // oldest first
+    expect(items.find((i) => i.name === "Kitchen light")?.groupCount).toBeUndefined();
+  });
+
+  it("does not group entries outside the time window", () => {
+    const far = entry({
+      ago: 100 + 4 * 60, // 4 minutes before cpu: outside the default 3 minute window
+      entity_id: "sensor.laptop_battery",
+      name: "Laptop battery",
+      state: "88",
+    });
+    const items = build([cpu, far], { group_window_minutes: 3 });
+    expect(items.every((i) => !i.groupCount)).toBe(true);
+    expect(items).toHaveLength(2);
+  });
+
+  it("respects a custom group_window_minutes", () => {
+    const far = entry({
+      ago: 100 + 4 * 60,
+      entity_id: "sensor.laptop_battery",
+      name: "Laptop battery",
+      state: "88",
+    });
+    const items = build([cpu, far], { group_window_minutes: 10 });
+    expect(items).toHaveLength(1);
+    expect(items[0].groupCount).toBe(2);
+  });
+
+  it("groups a device-less entity's own different actions by entity_id, once confirmed no device", () => {
+    const first = entry({
+      ago: 60,
+      entity_id: "sensor.standalone",
+      name: "Standalone sensor",
+      state: "2",
+    });
+    const second = entry({
+      ago: 30,
+      entity_id: "sensor.standalone",
+      name: "Standalone sensor",
+      state: "3",
+    });
+    const items = build([first, second]);
+    expect(items).toHaveLength(1);
+    expect(items[0].groupCount).toBe(2);
+  });
+
+  it("does not cross-group unrelated entities that merely lack device info", () => {
+    // light.kitchen and the laptop's binary sensor have no entity registry entry at all, so
+    // the fallback never applies to them: two different never-registered entities are never
+    // folded together just because they fired close in time.
+    const other = entry({
+      ago: 65,
+      entity_id: "binary_sensor.door",
+      name: "Front door",
+      state: "on",
+    });
+    const items = build([light, other]);
+    expect(items.every((i) => !i.groupCount)).toBe(true);
+    expect(items).toHaveLength(2);
+  });
+
+  it("never folds an entity explicitly asked for into a silent group", () => {
+    const items = build([cpu, battery, active, light], {
+      also_show_entities: ["sensor.laptop_battery"],
+    });
+    expect(items.find((i) => i.name === "Laptop battery")?.groupCount).toBeUndefined();
+    // the other two laptop entities still group together, without the picked one
+    const group = items.find((i) => i.groupCount)!;
+    expect(group.groupCount).toBe(2);
+    expect(group.name).toBe("Laptop active");
+    expect(group.group?.map((g) => g.name)).toEqual(["Laptop CPU"]);
+  });
+
+  it("can be turned off", () => {
+    const items = build([cpu, battery, active, light], { group_device_actions: false });
+    expect(items.every((i) => !i.groupCount)).toBe(true);
+    expect(items).toHaveLength(4);
+  });
+});
+
+describe("hide_devices", () => {
+  const h = makeHass(
+    [
+      state("sensor.presence_battery", "50", { friendly_name: "Presence battery" }),
+      state("sensor.presence_distance", "2", { friendly_name: "Presence distance" }),
+      state("light.kitchen", "on", { friendly_name: "Kitchen light" }),
+    ],
+    {
+      entities: {
+        "sensor.presence_battery": { entity_id: "sensor.presence_battery", device_id: "dev1" },
+        "sensor.presence_distance": { entity_id: "sensor.presence_distance", device_id: "dev1" },
+      },
+      devices: { dev1: { id: "dev1" } },
+    },
+  );
+  const shown = (e: ReturnType<typeof entry>[], c: Partial<WhatHappenedConfig> = {}) =>
+    flat(
+      buildTimeline(h, e, cfg({ activity: "everything", group_device_actions: false, ...c }), NOW),
+    ).map((i) => i.name);
+
+  const battery = entry({
+    ago: 30,
+    entity_id: "sensor.presence_battery",
+    name: "Presence battery",
+    state: "49",
+  });
+  const distance = entry({
+    ago: 20,
+    entity_id: "sensor.presence_distance",
+    name: "Presence distance",
+    state: "3",
+  });
+  const light = entry({ ago: 10, entity_id: "light.kitchen", name: "Kitchen light", state: "off" });
+
+  it("excludes every entity of a hidden device", () => {
+    expect(shown([battery, distance, light], { hide_devices: ["dev1"] })).toEqual([
+      "Kitchen light",
+    ]);
+  });
+
+  it("keeps an entity explicitly named in also_show_entities", () => {
+    expect(
+      shown([battery, distance, light], {
+        hide_devices: ["dev1"],
+        also_show_entities: ["sensor.presence_battery"],
+      }),
+    ).toEqual(["Kitchen light", "Presence battery"]);
+  });
+
+  it("keeps an entity carrying a label in also_show_labels", () => {
+    const labelled = makeHass(h.states ? Object.values(h.states) : [], {
+      entities: {
+        "sensor.presence_battery": {
+          entity_id: "sensor.presence_battery",
+          device_id: "dev1",
+          labels: ["watch"],
+        },
+        "sensor.presence_distance": { entity_id: "sensor.presence_distance", device_id: "dev1" },
+      },
+      devices: { dev1: { id: "dev1" } },
+    });
+    const items = flat(
+      buildTimeline(
+        labelled,
+        [battery, distance, light],
+        cfg({
+          activity: "everything",
+          hide_devices: ["dev1"],
+          also_show_labels: ["watch"],
+          group_device_actions: false,
+        }),
+        NOW,
+      ),
+    ).map((i) => i.name);
+    expect(items).toEqual(["Kitchen light", "Presence battery"]);
+  });
+
+  it("leaves a device not in hide_devices unaffected", () => {
+    expect(shown([battery, distance, light], { hide_devices: ["dev-other"] })).toEqual([
+      "Kitchen light",
+      "Presence distance",
+      "Presence battery",
+    ]);
+  });
+});
+
 describe("passesFilters", () => {
   it("applies the same rules used when buffering live events", () => {
     const light = entry({ entity_id: "light.kitchen", state: "on" });

@@ -1,4 +1,5 @@
 import { truncate } from "./noise";
+import { t, type StringKey } from "./strings";
 import type { HassEntity, HomeAssistant, Tone } from "./types";
 
 export interface StateDescription {
@@ -152,18 +153,22 @@ const EVENT_CLASSES: Record<string, string> = {
  * the logbook reports per entry (`attributes.event_type`); without it, the device class is the
  * best guess.
  */
-function describeEvent(deviceClass: string | undefined, eventType: string | undefined) {
+function describeEvent(
+  deviceClass: string | undefined,
+  eventType: string | undefined,
+  lang: string | undefined,
+) {
   if (eventType) {
     const known = EVENT_TYPES[eventType];
-    if (known) return { verb: known[0], tone: known[1] };
+    if (known) return { verb: t(known[0] as StringKey, lang), tone: known[1] };
     const text = eventType.replace(/_/g, " ");
     return {
-      verb: `reported ${text}`,
+      verb: t("reported {text}", lang, { text }),
       tone: (/(error|fail)/i.test(text) ? "alert" : "active") as Tone,
     };
   }
   const byClass = deviceClass ? EVENT_CLASSES[deviceClass] : undefined;
-  return { verb: byClass ?? "detected an event", tone: "active" as Tone };
+  return { verb: t((byClass ?? "detected an event") as StringKey, lang), tone: "active" as Tone };
 }
 
 function prettify(value: string): string {
@@ -205,39 +210,42 @@ export function describeState(
   /** For event entities: the event type of this entry, from the logbook. */
   eventType?: string,
 ): StateDescription {
-  if (state === "unavailable") return { verb: "became unavailable", tone: "unavailable" };
-  if (state === "unknown") return { verb: "became unknown", tone: "neutral" };
+  const lang = hass.locale?.language;
+  if (state === "unavailable") return { verb: t("became unavailable", lang), tone: "unavailable" };
+  if (state === "unknown") return { verb: t("became unknown", lang), tone: "neutral" };
 
   const stateObj = entityId ? hass.states[entityId] : undefined;
   const deviceClass = stateObj?.attributes.device_class;
 
-  if (domain === "event") return describeEvent(deviceClass, eventType);
+  if (domain === "event") return describeEvent(deviceClass, eventType, lang);
 
   if (PRESENCE_DOMAINS.has(domain)) {
-    if (state === "home") return { verb: "arrived home", tone: "active" };
-    if (state === "not_home") return { verb: "left home", tone: "inactive" };
-    return { verb: `arrived at ${zoneName(hass, state)}`, tone: "active" };
+    if (state === "home") return { verb: t("arrived home", lang), tone: "active" };
+    if (state === "not_home") return { verb: t("left home", lang), tone: "inactive" };
+    return { verb: t("arrived at {zone}", lang, { zone: zoneName(hass, state) }), tone: "active" };
   }
 
   if (domain === "binary_sensor" && deviceClass && BINARY[deviceClass]) {
     const [onVerb, offVerb, onTone, offTone] = BINARY[deviceClass];
-    if (state === "on") return { verb: onVerb, tone: onTone ?? "active" };
-    if (state === "off") return { verb: offVerb, tone: offTone ?? "inactive" };
+    if (state === "on") return { verb: t(onVerb as StringKey, lang), tone: onTone ?? "active" };
+    if (state === "off")
+      return { verb: t(offVerb as StringKey, lang), tone: offTone ?? "inactive" };
   }
 
   const byState = BY_STATE[domain]?.[state];
-  if (byState) return { verb: byState[0], tone: byState[1] };
+  if (byState) return { verb: t(byState[0] as StringKey, lang), tone: byState[1] };
 
-  if (PRESS_DOMAINS.has(domain)) return { verb: "was pressed", tone: "active" };
-  if (domain === "scene") return { verb: "was activated", tone: "active" };
+  if (PRESS_DOMAINS.has(domain)) return { verb: t("was pressed", lang), tone: "active" };
+  if (domain === "scene") return { verb: t("was activated", lang), tone: "active" };
 
-  if (domain === "climate" && state === "off") return { verb: "was turned off", tone: "inactive" };
+  if (domain === "climate" && state === "off")
+    return { verb: t("was turned off", lang), tone: "inactive" };
 
   if (ON_OFF_DOMAINS.has(domain) || state === "on" || state === "off") {
-    if (state === "on") return { verb: "was turned on", tone: "active" };
-    if (state === "off") return { verb: "was turned off", tone: "inactive" };
+    if (state === "on") return { verb: t("was turned on", lang), tone: "active" };
+    if (state === "off") return { verb: t("was turned off", lang), tone: "inactive" };
   }
 
   const value = entityId ? formatValue(hass, entityId, state) : prettify(state);
-  return { verb: `changed to ${truncate(value, 80)}`, tone: "neutral" };
+  return { verb: t("changed to {value}", lang, { value: truncate(value, 80) }), tone: "neutral" };
 }

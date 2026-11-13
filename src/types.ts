@@ -27,6 +27,7 @@ export interface EntityRegistryEntry {
 
 export interface DeviceRegistryEntry {
   id: string;
+  name?: string;
   area_id?: string | null;
   labels?: string[];
 }
@@ -105,6 +106,9 @@ export interface WhatHappenedConfig {
   exclude_entities?: string[];
   include_domains?: string[];
   exclude_domains?: string[];
+  /** Device registry ids: every entity of these devices is hidden, unless it is explicitly
+   * named in `also_show_entities` or carries a label in `also_show_labels`. */
+  hide_devices?: string[];
   /** Always show these entities, even when the smart default view would hide them. */
   also_show_entities?: string[];
   /** Show these domains on top of the smart default view (e.g. "sensor"). */
@@ -132,6 +136,10 @@ export interface WhatHappenedConfig {
   show_diagnostic?: boolean;
   hide_unavailable?: boolean;
   collapse_repeats?: boolean;
+  /** Fold several different actions of entities on the same device (or the same entity, when it
+   * has no device) within `group_window_minutes` into one expandable entry. */
+  group_device_actions?: boolean;
+  group_window_minutes?: number;
 }
 
 export type Tone = "active" | "inactive" | "alert" | "unavailable" | "neutral";
@@ -210,6 +218,11 @@ export interface TimelineItem {
   effects?: EffectLine[];
   /** The automations or scripts that carried the action out. */
   via?: Actor[];
+  /** Earlier actions of the same device (or entity), folded under this one: the displayed item
+   * is the latest action, these are the ones before it, oldest first. */
+  group?: TimelineItem[];
+  /** Total number of actions folded into this entry (this one plus `group`). */
+  groupCount?: number;
 }
 
 export interface DayGroup {

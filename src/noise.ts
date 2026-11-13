@@ -1,3 +1,4 @@
+import { t } from "./strings";
 import type { HomeAssistant, TimelineItem } from "./types";
 
 /**
@@ -31,6 +32,7 @@ export function summarizeChatty(
   mode: "summarize" | "hide" | "show",
   /** Entities the user asked to see: never summarized or hidden. */
   exempt: ReadonlySet<string> = new Set(),
+  lang?: string,
 ): TimelineItem[] {
   if (mode === "show") return items;
   const groups = new Map<string, TimelineItem[]>();
@@ -69,13 +71,16 @@ export function summarizeChatty(
       ...item,
       key: `chatty|${key}`,
       verb: item.isRun
-        ? `was triggered ${n} times`
+        ? t("was triggered {n} times", lang, { n })
         : sameVerb
-          ? `${item.verb} ${n} times`
+          ? t("{verb} {n} times", lang, { n, verb: item.verb })
           : event
-            ? `fired ${n} times`
-            : `changed ${n} times`,
-      details: item.isRun || sameVerb ? undefined : [`latest: ${truncate(item.verb, 70)}`],
+            ? t("fired {n} times", lang, { n })
+            : t("changed {n} times", lang, { n }),
+      details:
+        item.isRun || sameVerb
+          ? undefined
+          : [t("latest: {verb}", lang, { verb: truncate(item.verb, 70) })],
       isRun: false,
       count: 1,
       rich: true,
@@ -121,7 +126,7 @@ function sameCause(a: TimelineItem, b: TimelineItem): boolean {
 }
 
 /** Three or more entities of one domain doing the same thing within seconds become one entry. */
-export function groupBursts(items: TimelineItem[]): TimelineItem[] {
+export function groupBursts(items: TimelineItem[], lang?: string): TimelineItem[] {
   interface Cluster {
     members: TimelineItem[];
     oldest: number;
@@ -156,7 +161,11 @@ export function groupBursts(items: TimelineItem[]): TimelineItem[] {
       entityId: undefined,
       name: `${distinct.size} ${plural(newest.domain)}`,
       verb: pluralVerb(newest.verb),
-      details: [names.length > 6 ? `${shown} and ${names.length - 6} more` : shown],
+      details: [
+        names.length > 6
+          ? t("{shown} and {more} more", lang, { shown, more: names.length - 6 })
+          : shown,
+      ],
       cause: members.every((m) => sameCause(m, newest)) ? newest.cause : undefined,
       count: 1,
       stateValue: undefined,

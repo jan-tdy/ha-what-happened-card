@@ -4,6 +4,7 @@ import { classMap } from "lit/directives/class-map.js";
 import { styleMap } from "lit/directives/style-map.js";
 import { formatDateTime, formatRelative, formatTime } from "./format";
 import { subscribeLogbook } from "./logbook";
+import { t } from "./strings";
 import { TraceCache, extractActions, type ActionEvent } from "./trace";
 import { findTapoVacuums, vacuumItems, type HistoryRun, type VacuumData } from "./vacuum";
 import { cardStyles } from "./styles";
@@ -46,6 +47,7 @@ export class WhatHappenedCard extends LitElement {
   @state() private _loading = true;
   @state() private _error?: string;
   @state() private _now = Date.now();
+  @state() private _expandedGroups = new Set<string>();
 
   private _hass?: HomeAssistant;
   private _entries = new Map<string, LogbookEntry>();
@@ -349,6 +351,14 @@ export class WhatHappenedCard extends LitElement {
     }
   }
 
+  private _toggleGroup(ev: Event, key: string): void {
+    ev.stopPropagation();
+    const next = new Set(this._expandedGroups);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this._expandedGroups = next;
+  }
+
   // ----------------------------------------------------------------- render
 
   protected render(): TemplateResult | typeof nothing {
@@ -437,12 +447,13 @@ export class WhatHappenedCard extends LitElement {
     const showCause = config.show_cause ?? DEFAULTS.show_cause;
     const clickable = !!item.entityId && (config.tap_action ?? DEFAULTS.tap_action) !== "none";
     const photo = avatars && item.picture;
+    const grouped = !!item.groupCount && item.groupCount > 1;
 
     return html`
       <li class=${classMap({ item: true, last })}>
         <div class="rail">
           <div
-            class=${classMap({ node: true, photo: !!photo })}
+            class=${classMap({ node: true, photo: !!photo, grouped })}
             style=${styleMap({ "--accent": item.accent })}
           >
             ${
@@ -476,6 +487,8 @@ export class WhatHappenedCard extends LitElement {
             }
             ${showCause ? this._renderCause(item, avatars) : nothing}
             ${showCause ? this._renderVia(item) : nothing} ${this._renderEffects(item)}
+            ${grouped ? this._renderGroupCaption(item, config) : nothing}
+            ${grouped && this._expandedGroups.has(item.key) ? this._renderGroupMembers(item) : nothing}
           </div>
           ${this._renderTime(item, config)}
         </div>
@@ -553,6 +566,78 @@ export class WhatHappenedCard extends LitElement {
   }
 
   /** What one action caused: a line per thing, under the entry that started it. */
+  /** "5 changes in the last 2 min", with a chevron that reveals the earlier actions. */
+  private _renderGroupCaption(item: TimelineItem, config: WhatHappenedConfig): TemplateResult {
+    const minutes = config.group_window_minutes ?? DEFAULTS.group_window_minutes;
+    const lang = this._hass?.locale?.language;
+    const text = t("{count} changes in the last {minutes} min", lang, {
+      count: item.groupCount!,
+      minutes,
+    });
+    const expanded = this._expandedGroups.has(item.key);
+    return html`
+      <div
+        class="secondary group-caption"
+        role="button"
+        tabindex="0"
+        aria-expanded=${expanded ? "true" : "false"}
+        @click=${(ev: Event) => this._toggleGroup(ev, item.key)}
+        @keydown=${(ev: KeyboardEvent) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            this._toggleGroup(ev, item.key);
+          }
+        }}
+      >
+        <ha-icon class="chevron" icon=${expanded ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
+        ${text}
+      </div>
+    `;
+  }
+
+  /** The earlier actions folded into a grouped entry, oldest first. */
+  private _renderGroupMembers(item: TimelineItem): TemplateResult {
+    const interactive = (this._config?.tap_action ?? DEFAULTS.tap_action) !== "none";
+    return html`<ul class="group-members">
+      ${item.group?.map((member) => {
+        const stateObj =
+          member.entityId && !member.fixedIcon ? this._hass?.states[member.entityId] : undefined;
+        const clickable = interactive && !!member.entityId;
+        return html`<li
+          class=${classMap({ "group-member": true, clickable })}
+          role=${clickable ? "button" : "text"}
+          tabindex=${clickable ? "0" : "-1"}
+          @click=${(ev: Event) => {
+            if (!clickable) return;
+            ev.stopPropagation();
+            this._moreInfo(member.entityId);
+          }}
+          @keydown=${(ev: KeyboardEvent) => {
+            if ((ev.key === "Enter" || ev.key === " ") && clickable) {
+              ev.stopPropagation();
+              ev.preventDefault();
+              this._moreInfo(member.entityId);
+            }
+          }}
+        >
+          <span class="gm-icon"
+            >${
+              stateObj
+                ? html`<ha-state-icon
+                    .hass=${this._hass}
+                    .stateObj=${stateObj}
+                    .stateValue=${member.stateValue}
+                  ></ha-state-icon>`
+                : html`<ha-icon .icon=${member.icon}></ha-icon>`
+            }</span
+          >
+          <span class="gm-text"><span class="gm-name">${member.name}</span> ${member.verb}</span>
+          <span class="gm-time">${formatTime(member.when, this._hass)}</span>
+        </li>`;
+      })}
+    </ul>`;
+  }
+
   private _renderEffects(item: TimelineItem): TemplateResult | typeof nothing {
     if (!item.effects?.length) return nothing;
     const interactive = (this._config?.tap_action ?? DEFAULTS.tap_action) !== "none";
@@ -609,7 +694,7 @@ export class WhatHappenedCard extends LitElement {
   private _renderTime(item: TimelineItem, config: WhatHappenedConfig): TemplateResult {
     const mode = config.time_display ?? DEFAULTS.time_display;
     const abs = formatTime(item.when, this._hass);
-    const rel = formatRelative(item.when, this._now);
+    const rel = formatRelative(item.when, this._now, this._hass);
     return html`
       <div class="time" title=${formatDateTime(item.when, this._hass)}>
         ${mode !== "relative" ? html`<span class="abs">${abs}</span>` : nothing}
