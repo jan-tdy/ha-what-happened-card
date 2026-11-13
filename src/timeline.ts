@@ -305,6 +305,25 @@ function dedupe(
   return hideGroupMembers(hass, items, pickedEntities(config, hass));
 }
 
+/** `binary_sensor` device classes that mean "presence/occupancy sensor". */
+const PRESENCE_DEVICE_CLASSES = new Set(["motion", "occupancy", "presence", "moving"]);
+
+/**
+ * Lights and presence sensors toggle on their own as a normal, meaningful part of using them
+ * (a light going on then off, a room becoming occupied then clear): folding 2-3 of those into a
+ * group hides exactly the thing someone opened the timeline to see. Everything else keeps the
+ * original threshold of 2, since those are the genuinely chatty, low-signal entities (CPU/battery
+ * sensors, a laptop's many sub-sensors) the feature was built for.
+ */
+function minGroupSize(item: TimelineItem, hass: HomeAssistant): number {
+  if (item.domain === "light") return 4;
+  if (item.domain === "binary_sensor") {
+    const deviceClass = item.entityId && hass.states[item.entityId]?.attributes.device_class;
+    if (deviceClass && PRESENCE_DEVICE_CLASSES.has(deviceClass)) return 4;
+  }
+  return 2;
+}
+
 /**
  * A chatty device (a laptop, a presence sensor with a dozen sub-sensors) still floods the
  * timeline with one row per sensor even once `collapse_repeats` has merged each sensor's own
@@ -359,7 +378,8 @@ export function groupDeviceActions(
 
   const replaced = new Map<TimelineItem, TimelineItem | null>();
   for (const { members } of clusters) {
-    if (members.length < 2) continue; // nothing to fold a single action under
+    const threshold = Math.max(...members.map((m) => minGroupSize(m, hass)));
+    if (members.length < threshold) continue;
     const [head, ...rest] = members; // newest first, since `items` is newest first
     replaced.set(head, {
       ...head,

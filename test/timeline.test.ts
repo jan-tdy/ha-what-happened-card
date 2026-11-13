@@ -273,6 +273,104 @@ describe("group_device_actions", () => {
   });
 });
 
+describe("group_device_actions: lights and presence sensors need at least 4", () => {
+  const h = makeHass(
+    [
+      state("light.kitchen", "on", { friendly_name: "Kitchen light" }),
+      state("binary_sensor.hallway_presence", "on", {
+        friendly_name: "Hallway presence",
+        device_class: "occupancy",
+      }),
+      state("binary_sensor.hallway_door", "on", {
+        friendly_name: "Hallway door",
+        device_class: "door",
+      }),
+    ],
+    {
+      entities: {
+        "light.kitchen": { entity_id: "light.kitchen", device_id: "kitchen_light" },
+        "binary_sensor.hallway_presence": {
+          entity_id: "binary_sensor.hallway_presence",
+          device_id: "hallway_fp2",
+        },
+        "binary_sensor.hallway_door": {
+          entity_id: "binary_sensor.hallway_door",
+          device_id: "hallway_door_sensor",
+        },
+      },
+      devices: {
+        kitchen_light: { id: "kitchen_light" },
+        hallway_fp2: { id: "hallway_fp2" },
+        hallway_door_sensor: { id: "hallway_door_sensor" },
+      },
+    },
+  );
+  const build = (e: ReturnType<typeof entry>[]) =>
+    flat(buildTimeline(h, e, cfg({ activity: "everything" }), NOW));
+
+  const lightToggle = (ago: number, state: string) =>
+    entry({ ago, entity_id: "light.kitchen", name: "Kitchen light", state });
+  const presenceToggle = (ago: number, state: string) =>
+    entry({ ago, entity_id: "binary_sensor.hallway_presence", name: "Hallway presence", state });
+
+  it("does not group 3 rapid-fire light toggles", () => {
+    const items = build([lightToggle(90, "off"), lightToggle(60, "on"), lightToggle(30, "off")]);
+    expect(items.every((i) => !i.groupCount)).toBe(true);
+    expect(items).toHaveLength(3);
+  });
+
+  it("groups 4 or more rapid-fire light toggles", () => {
+    const items = build([
+      lightToggle(120, "off"),
+      lightToggle(90, "on"),
+      lightToggle(60, "off"),
+      lightToggle(30, "on"),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].groupCount).toBe(4);
+  });
+
+  it("does not group 3 rapid-fire presence sensor changes", () => {
+    const items = build([
+      presenceToggle(90, "off"),
+      presenceToggle(60, "on"),
+      presenceToggle(30, "off"),
+    ]);
+    expect(items.every((i) => !i.groupCount)).toBe(true);
+    expect(items).toHaveLength(3);
+  });
+
+  it("groups 4 or more rapid-fire presence sensor changes", () => {
+    const items = build([
+      presenceToggle(120, "off"),
+      presenceToggle(90, "on"),
+      presenceToggle(60, "off"),
+      presenceToggle(30, "on"),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].groupCount).toBe(4);
+  });
+
+  it("still groups a non-light, non-presence device at 2", () => {
+    const items = build([
+      entry({
+        ago: 60,
+        entity_id: "binary_sensor.hallway_door",
+        name: "Hallway door",
+        state: "on",
+      }),
+      entry({
+        ago: 30,
+        entity_id: "binary_sensor.hallway_door",
+        name: "Hallway door",
+        state: "off",
+      }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].groupCount).toBe(2);
+  });
+});
+
 describe("hide_devices", () => {
   const h = makeHass(
     [
