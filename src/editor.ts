@@ -37,6 +37,7 @@ const LABELS: Record<string, string> = {
   order: "Order",
   target: "Only show activity of",
   exclude_entities: "Hide these entities",
+  hide_devices: "Hide these devices",
   also_show_entities: "Also show these entities",
   also_show_domains: "Also show these domains",
   also_show_labels: "Also show these labels",
@@ -58,6 +59,8 @@ const LABELS: Record<string, string> = {
   show_diagnostic: "Include diagnostic, configuration and hidden entities",
   hide_unavailable: "Hide unavailable / unknown states",
   collapse_repeats: "Merge rapid repeats of the same event",
+  group_device_actions: "Group a device's different actions together",
+  group_window_minutes: "Grouping window",
 };
 
 const HELPERS: Record<string, string> = {
@@ -65,7 +68,9 @@ const HELPERS: Record<string, string> = {
     "Pick a domain (light, input_boolean, …) or a single entity and the color of its icons. An entity beats its domain.",
   title: "Leave empty to show no title.",
   also_show_entities:
-    "Shown even when the default view would hide them (helpers, buttons, diagnostic entities, restart noise, very frequent entities). Pick an automation or script to always list its runs.",
+    "Shown even when the default view would hide them (helpers, buttons, diagnostic entities, restart noise, very frequent entities). Pick an automation or script to always list its runs. Also the way to keep one entity of a hidden device visible.",
+  hide_devices:
+    'Every entity of these devices is hidden, handy for a device with many sensors (a presence sensor, a laptop). Add an entity to "Also show these entities" to keep just that one visible.',
   also_show_labels:
     'Everything carrying one of these labels (entities and devices) is shown like an entity in the list above. Handy for a "watch this" label.',
   also_show_domains:
@@ -81,6 +86,9 @@ const HELPERS: Record<string, string> = {
     "Entities with at least 10 entries at a pace of one per hour or faster, such as a clock sensor or an automation that runs every 15 minutes.",
   max_height:
     "Pixels. Only needed in Masonry and Panel views. In Sections views, resize the card with its handles.",
+  group_device_actions:
+    "A chatty device (a laptop, a presence sensor with many sub-sensors) gets one expandable entry instead of one row per sensor.",
+  group_window_minutes: "How close together, in minutes, actions of one device have to be.",
 };
 
 const BASE_SCHEMA: Schema = [
@@ -127,6 +135,7 @@ const BASE_SCHEMA: Schema = [
 const SOURCE_SCHEMA: Schema = [
   { name: "target", selector: { target: {} } },
   { name: "exclude_entities", selector: { entity: { multiple: true } } },
+  { name: "hide_devices", selector: { device: { multiple: true } } },
   { name: "also_show_entities", selector: { entity: { multiple: true } } },
   { name: "also_show_labels", selector: { label: { multiple: true } } },
   {
@@ -243,6 +252,19 @@ const RULES_SCHEMA: Schema = [
   { name: "vacuum_details", selector: { boolean: {} } },
   { name: "hide_unavailable", selector: { boolean: {} } },
   { name: "collapse_repeats", selector: { boolean: {} } },
+  { name: "group_device_actions", selector: { boolean: {} } },
+  {
+    name: "group_window_minutes",
+    selector: {
+      number: {
+        min: LIMITS.groupWindow[0],
+        max: LIMITS.groupWindow[1],
+        step: 1,
+        mode: "box",
+        unit_of_measurement: "min",
+      },
+    },
+  },
 ];
 
 const PANELS: Array<{ id: string; header: string; icon: string; schema: Schema }> = [
@@ -296,6 +318,71 @@ export class WhatHappenedCardEditor extends LitElement {
     );
   }
 
+  /** Entities of a hidden device, so one of them can still be picked back in. Modest on
+   * purpose: a plain checkbox list, not a full picker. */
+  private _deviceEntities(deviceId: string): Array<{ entityId: string; name: string }> {
+    const hass = this.hass;
+    if (!hass?.entities) return [];
+    return Object.values(hass.entities)
+      .filter((e) => e.device_id === deviceId)
+      .map((e) => ({
+        entityId: e.entity_id,
+        name: hass.states[e.entity_id]?.attributes.friendly_name ?? e.entity_id,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private _toggleAlsoShow(entityId: string, checked: boolean): void {
+    if (!this._config) return;
+    const current = this._config.also_show_entities ?? [];
+    const also_show_entities = checked
+      ? [...new Set([...current, entityId])]
+      : current.filter((id) => id !== entityId);
+    this._config = { ...this._config, also_show_entities };
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _renderDeviceExceptions(): TemplateResult | typeof nothing {
+    const hideDevices = this._config?.hide_devices;
+    if (!hideDevices?.length || !this.hass) return nothing;
+    const alsoShown = new Set(this._config?.also_show_entities ?? []);
+    return html`
+      <div class="device-exceptions">
+        ${hideDevices.map((deviceId) => {
+          const entities = this._deviceEntities(deviceId);
+          if (!entities.length) return nothing;
+          const name = this.hass?.devices?.[deviceId]?.name ?? deviceId;
+          return html`
+            <p class="device-exceptions-title">${name}: keep visible</p>
+            <ul class="device-exceptions-list">
+              ${entities.map(
+                (e) => html`
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        .checked=${alsoShown.has(e.entityId)}
+                        @change=${(ev: Event) =>
+                          this._toggleAlsoShow(e.entityId, (ev.target as HTMLInputElement).checked)}
+                      />
+                      ${e.name}
+                    </label>
+                  </li>
+                `,
+              )}
+            </ul>
+          `;
+        })}
+      </div>
+    `;
+  }
+
   private _form(schema: Schema): TemplateResult {
     return html`<ha-form
       .hass=${this.hass}
@@ -315,7 +402,10 @@ export class WhatHappenedCardEditor extends LitElement {
         (panel) => html`
           <ha-expansion-panel outlined .header=${panel.header} .expanded=${panel.id === "source"}>
             <ha-icon slot="leading-icon" .icon=${panel.icon}></ha-icon>
-            <div class="panel-content">${this._form(panel.schema)}</div>
+            <div class="panel-content">
+              ${this._form(panel.schema)}
+              ${panel.id === "source" ? this._renderDeviceExceptions() : nothing}
+            </div>
           </ha-expansion-panel>
         `,
       )}
@@ -338,6 +428,28 @@ export class WhatHappenedCardEditor extends LitElement {
     }
     .panel-content {
       padding: 0 16px 16px;
+    }
+    .device-exceptions {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--divider-color);
+    }
+    .device-exceptions-title {
+      margin: 8px 0 4px;
+      font-size: 0.9em;
+      color: var(--secondary-text-color);
+    }
+    .device-exceptions-list {
+      list-style: none;
+      margin: 0 0 8px;
+      padding: 0;
+    }
+    .device-exceptions-list label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      font-size: 0.9em;
     }
   `;
 }

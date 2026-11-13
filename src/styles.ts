@@ -104,6 +104,12 @@ export const cardStyles = css`
   .node.photo::before {
     display: none;
   }
+  /* A device/entity group's icon gets a ring, signalling several folded actions. */
+  .node.grouped {
+    box-shadow:
+      0 0 0 2px var(--wh-surface),
+      0 0 0 4px var(--accent);
+  }
   .glyph {
     position: absolute;
     inset: 0;
@@ -263,6 +269,82 @@ export const cardStyles = css`
   .e-details {
     color: var(--wh-secondary);
     font-size: var(--ha-font-size-s, 12px);
+  }
+  .group-caption {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+    outline: none;
+    margin-left: calc(-1 * var(--ha-space-1, 4px));
+    border-radius: var(--ha-border-radius-sm, 4px);
+  }
+  .group-caption:hover {
+    color: var(--primary-text-color);
+  }
+  .group-caption:focus-visible {
+    box-shadow: 0 0 0 2px var(--primary-color);
+  }
+  .group-caption .chevron {
+    --mdc-icon-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+  .group-members {
+    list-style: none;
+    margin: var(--ha-space-1, 4px) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ha-space-1, 4px);
+    border-left: 2px solid var(--divider-color);
+    padding-left: var(--ha-space-2, 8px);
+  }
+  .group-member {
+    display: flex;
+    align-items: center;
+    gap: var(--ha-space-2, 8px);
+    padding: 2px var(--ha-space-1, 4px);
+    margin: 0 calc(-1 * var(--ha-space-1, 4px));
+    border-radius: var(--ha-border-radius-sm, 4px);
+    color: var(--wh-secondary);
+    font-size: var(--ha-font-size-s, 12px);
+    line-height: 1.3;
+    outline: none;
+  }
+  .group-member.clickable {
+    cursor: pointer;
+  }
+  .group-member.clickable:hover {
+    background: color-mix(in srgb, var(--primary-text-color) 6%, transparent);
+  }
+  .group-member.clickable:focus-visible {
+    box-shadow: 0 0 0 2px var(--primary-color);
+  }
+  .gm-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    --mdc-icon-size: 14px;
+  }
+  .gm-icon ha-state-icon,
+  .gm-icon ha-icon {
+    display: block;
+    width: 14px;
+    height: 14px;
+  }
+  .gm-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .gm-name {
+    font-weight: var(--ha-font-weight-medium, 500);
+  }
+  .gm-time {
+    flex: none;
+    font-variant-numeric: tabular-nums;
   }
   .count {
     display: inline-flex;

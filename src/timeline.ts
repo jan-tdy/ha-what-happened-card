@@ -6,6 +6,7 @@ import { REPLACED_STATES, REPLACE_WINDOW_MS } from "./vacuum";
 import {
   RESTART_EXEMPT_DOMAINS,
   hasKnownCause,
+  isDeviceHidden,
   isMeaningful,
   isRunEntry,
   pickedEntities,
@@ -43,9 +44,11 @@ export const DEFAULTS = {
   chatty: "summarize",
   show_diagnostic: false,
   collapse_repeats: true,
+  group_device_actions: true,
+  group_window_minutes: 3,
 } as const;
 
-export const LIMITS = { hours: [1, 720], entries: [1, 500] } as const;
+export const LIMITS = { hours: [1, 720], entries: [1, 500], groupWindow: [1, 60] } as const;
 
 const CHAIN_WINDOW_MS = 60 * 1000;
 const COLLAPSE_WINDOW_MS = 10 * 60 * 1000;
@@ -69,6 +72,10 @@ export function effectiveHours(config: WhatHappenedConfig): number {
 
 export function effectiveMaxEntries(config: WhatHappenedConfig): number {
   return clamp(config.max_entries, LIMITS.entries, DEFAULTS.max_entries);
+}
+
+export function effectiveGroupWindowMinutes(config: WhatHappenedConfig): number {
+  return clamp(config.group_window_minutes, LIMITS.groupWindow, DEFAULTS.group_window_minutes);
 }
 
 function domainOf(entry: LogbookEntry): string {
@@ -107,6 +114,7 @@ export function passesFilters(
   if (entry.entity_id && config.exclude_entities?.includes(entry.entity_id)) return false;
   if (config.include_domains?.length && !config.include_domains.includes(domain)) return false;
   if (config.exclude_domains?.includes(domain)) return false;
+  if (entry.entity_id && isDeviceHidden(config, hass, entry.entity_id)) return false;
   if (
     !forceMeaningful &&
     (config.activity ?? DEFAULTS.activity) === "meaningful" &&
@@ -298,6 +306,78 @@ function dedupe(
 }
 
 /**
+ * A chatty device (a laptop, a presence sensor with a dozen sub-sensors) still floods the
+ * timeline with one row per sensor even once `collapse_repeats` has merged each sensor's own
+ * identical repeats. This folds several *different* actions of entities on the same device (or
+ * the same entity, when it has no device) within `group_window_minutes` of each other into one
+ * expandable entry: the entry shown is the latest action, with the earlier ones kept under
+ * `group` (oldest first) for the card to reveal on request.
+ *
+ * `items` is newest first, already past `collapse_repeats`.
+ */
+export function groupDeviceActions(
+  hass: HomeAssistant,
+  items: TimelineItem[],
+  config: WhatHappenedConfig,
+): TimelineItem[] {
+  if (!(config.group_device_actions ?? DEFAULTS.group_device_actions)) return items;
+  const windowMs = effectiveGroupWindowMinutes(config) * 60_000;
+  const picked = pickedEntities(config, hass);
+
+  function keyOf(item: TimelineItem): string | undefined {
+    if (item.rich || !item.entityId || picked.has(item.entityId)) return undefined;
+    const reg = hass.entities?.[item.entityId];
+    if (!reg) return undefined;
+    if (reg.device_id) return `device|${reg.device_id}`;
+    // `device_id` is `null` on a real registry entry that was looked up and confirmed to have
+    // no device; `undefined` only means no registry data was supplied at all (as most of this
+    // card's own tests do). Only the confirmed case groups by entity_id on its own: otherwise a
+    // sensor's own ordinary run of different states (a vacuum going error → returning →
+    // cleaning) would read as noise collapsed under a count instead of what it is.
+    return reg.device_id === null ? `entity|${item.entityId}` : undefined;
+  }
+
+  interface Cluster {
+    members: TimelineItem[];
+    oldest: number;
+  }
+  const open = new Map<string, Cluster>();
+  const clusters: Cluster[] = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    if (!key) continue;
+    const cluster = open.get(key);
+    if (cluster && cluster.oldest - item.when <= windowMs) {
+      cluster.members.push(item);
+      cluster.oldest = item.when;
+    } else {
+      const fresh = { members: [item], oldest: item.when };
+      open.set(key, fresh);
+      clusters.push(fresh);
+    }
+  }
+
+  const replaced = new Map<TimelineItem, TimelineItem | null>();
+  for (const { members } of clusters) {
+    if (members.length < 2) continue; // nothing to fold a single action under
+    const [head, ...rest] = members; // newest first, since `items` is newest first
+    replaced.set(head, {
+      ...head,
+      key: `devgroup|${head.key}`,
+      group: [...rest].reverse(), // oldest first
+      groupCount: members.length,
+    });
+    for (const member of rest) replaced.set(member, null);
+  }
+  if (replaced.size === 0) return items;
+  return items.flatMap((item) => {
+    if (!replaced.has(item)) return [item];
+    const swap = replaced.get(item);
+    return swap ? [swap] : [];
+  });
+}
+
+/**
  * Turn raw logbook entries into the grouped, filtered and limited structure the
  * card renders. Pure function so it can be unit-tested.
  */
@@ -315,6 +395,7 @@ export function buildTimeline(
   const since = now - effectiveHours(config) * 3_600_000;
   const maxEntries = effectiveMaxEntries(config);
   const collapse = config.collapse_repeats ?? DEFAULTS.collapse_repeats;
+  const lang = hass.locale?.language;
 
   // Integration items outside the window are dropped first, so they can never suppress a
   // logbook line that is still inside it.
@@ -435,7 +516,9 @@ export function buildTimeline(
       dedupe(hass, foldTrackers(hass, chained, config), config),
       config.chatty ?? DEFAULTS.chatty,
       picked,
+      lang,
     ),
+    lang,
   );
   // One action, one entry: what an automation caused moves under the entry that started it.
   const merged = applyColors(
@@ -469,7 +552,8 @@ export function buildTimeline(
     if (items.length > maxEntries) break;
   }
 
-  const limited = items.slice(0, maxEntries);
+  const grouped = groupDeviceActions(hass, items, config);
+  const limited = grouped.slice(0, maxEntries);
   if ((config.order ?? DEFAULTS.order) === "oldest_first") limited.reverse();
 
   const groups: DayGroup[] = [];
@@ -477,7 +561,7 @@ export function buildTimeline(
     const key = dayKey(item.when);
     let group = groups[groups.length - 1];
     if (!group || group.key !== key) {
-      group = { key, label: formatDayLabel(item.when, now), items: [] };
+      group = { key, label: formatDayLabel(item.when, now, hass), items: [] };
       groups.push(group);
     }
     group.items.push(item);

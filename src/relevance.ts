@@ -105,6 +105,22 @@ export function pickedEntities(config: WhatHappenedConfig, hass?: HomeAssistant)
   return ids;
 }
 
+/**
+ * An entity whose device is in `hide_devices`, unless the user explicitly asked for it anyway
+ * (`also_show_entities`, or a label in `also_show_labels`) — the same way `also_show_entities`
+ * always wins, whatever else would otherwise hide an entity.
+ */
+export function isDeviceHidden(
+  config: WhatHappenedConfig,
+  hass: HomeAssistant | undefined,
+  entityId: string,
+): boolean {
+  if (!config.hide_devices?.length) return false;
+  const deviceId = hass?.entities?.[entityId]?.device_id;
+  if (!deviceId || !config.hide_devices.includes(deviceId)) return false;
+  return !pickedEntities(config, hass).has(entityId);
+}
+
 export function isRunEntry(entry: LogbookEntry): boolean {
   const domain = entry.domain ?? entry.entity_id?.split(".")[0];
   return (
