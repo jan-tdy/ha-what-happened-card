@@ -967,7 +967,7 @@ function bn(t, e, n = /* @__PURE__ */ new Set(), s, i = vn, r = _n) {
   for (const m of a.values()) {
     let d = [];
     for (const f of m)
-      d.length && d[d.length - 1].when - f.when > o && (u(d), d = []), d.push(f);
+      d.length && d[d.length - 1].when - f.when >= o && (u(d), d = []), d.push(f);
     u(d);
   }
   function u(m) {

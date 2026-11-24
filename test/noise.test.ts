@@ -124,6 +124,32 @@ describe("chatty entities", () => {
     expect(new Set(summaries.map((i) => i.key)).size).toBe(2);
   });
 
+  it("a gap exactly as long as the threshold still starts a new group", () => {
+    // Ten changes a minute apart (1-10 min ago), then a gap of exactly 10 minutes, then ten
+    // more a minute apart (20-29 min ago): "at least" the configured gap must split, not only
+    // a gap strictly longer than it.
+    const recent = Array.from({ length: 10 }, (_, i) =>
+      entry({
+        ago: 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `r${i}`,
+      }),
+    );
+    const earlier = Array.from({ length: 10 }, (_, i) =>
+      entry({
+        ago: 20 * 60 + 60 * i,
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `e${i}`,
+      }),
+    );
+    const result = items([...recent, ...earlier], { chatty_gap_minutes: 10 });
+    const summaries = result.filter((i) => i.name === "Date & Time");
+    expect(summaries).toHaveLength(2);
+    expect(summaries.map((i) => i.verb)).toEqual(["changed 10 times", "changed 10 times"]);
+  });
+
   it("only summarizes the bursts that are actually chatty, leaving a quiet trickle of the same entity alone", () => {
     const burst = Array.from({ length: 12 }, (_, i) =>
       entry({

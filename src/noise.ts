@@ -57,7 +57,7 @@ export function summarizeChatty(
   for (const list of groups.values()) {
     let burst: TimelineItem[] = [];
     for (const item of list) {
-      if (burst.length && burst[burst.length - 1].when - item.when > gapMs) {
+      if (burst.length && burst[burst.length - 1].when - item.when >= gapMs) {
         settleBurst(burst);
         burst = [];
       }
