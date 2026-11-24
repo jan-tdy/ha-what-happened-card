@@ -7,7 +7,6 @@ A live, resizable timeline for Home Assistant that tells you **what happened, wh
 
 ![Preview](docs/preview.png)
 
-
 If you found this useful, please consider starring the repo.
 
 ## Features
@@ -159,6 +158,7 @@ Requires Home Assistant 2024.8 or newer.
 MIT
 
 ## Star history
+
 ## Star History
 
 <a href="https://www.star-history.com/?repos=jan-tdy%2Fha-what-happened-card&type=timeline&releases=&legend=bottom-right">

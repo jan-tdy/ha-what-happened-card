@@ -138,7 +138,6 @@ export const en = {
 export type StringKey = keyof typeof en;
 export type Strings = Partial<Record<StringKey, string>>;
 
-
 // -- German (de) localization ------------------------------------------------------------------
 const de: Strings = {
   "was opened": "wurde geöffnet",
@@ -167,8 +166,8 @@ const de: Strings = {
   "is safe": "ist sicher",
   "detected tampering": "Manipulation erkannt",
   "tampering cleared": "Keine Manipulation erkannt",
-  "connected": "Verbunden",
-  "disconnected": "Getrennt",
+  connected: "Verbunden",
+  disconnected: "Getrennt",
   "was plugged in": "wurde eingesteckt",
   "was unplugged": "wurde ausgesteckt",
   "detected power": "Strom erkannt",
@@ -208,7 +207,7 @@ const de: Strings = {
   "is disarming": "wird deaktiviert",
   "was triggered": "wurde ausgelöst",
   "started playing": "Wiedergabe gestartet",
-  "paused": "pausiert",
+  paused: "pausiert",
   "is idle": "Leerlauf",
   "is buffering": "puffert",
   "went to standby": "in den Standby gewechselt",
@@ -217,11 +216,11 @@ const de: Strings = {
   "is returning to its dock": "kehrt zur Ladestation zurück",
   "reported an error": "Fehler gemeldet",
   "started mowing": "Mähen gestartet",
-  "started": "gestartet",
-  "finished": "abgeschlossen",
-  "rose": "ist gestiegen",
-  "set": "wurde gesetzt",
-  "rang": "hat geklingelt",
+  started: "gestartet",
+  finished: "abgeschlossen",
+  rose: "ist gestiegen",
+  set: "wurde gesetzt",
+  rang: "hat geklingelt",
   "detected a person": "Person erkannt",
   "was pressed": "wurde gedrückt",
   "was double-pressed": "wurde doppelt gedrückt",
