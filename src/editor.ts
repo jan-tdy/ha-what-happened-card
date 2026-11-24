@@ -56,6 +56,8 @@ const LABELS: Record<string, string> = {
   automation_runs: "Automation and script runs",
   show_actions: "Show what automations said or sent (needs an admin user)",
   chatty: "Very frequent entities",
+  chatty_min_events: "Minimum entries",
+  chatty_gap_minutes: "Quiet gap that starts a new group",
   show_diagnostic: "Include diagnostic, configuration and hidden entities",
   hide_unavailable: "Hide unavailable / unknown states",
   collapse_repeats: "Merge rapid repeats of the same event",
@@ -83,7 +85,10 @@ const HELPERS: Record<string, string> = {
   automation_runs:
     "Most runs are plumbing. By default only what a run said on a speaker or sent as a notification is shown, as its own entry.",
   chatty:
-    "Entities with at least 10 entries at a pace of one per hour or faster, such as a clock sensor or an automation that runs every 15 minutes.",
+    "Entities with at least `chatty_min_events` entries at a pace of one per hour or faster, such as a clock sensor or an automation that runs every 15 minutes. A quiet stretch of `chatty_gap_minutes` starts a new group.",
+  chatty_min_events: "How many entries, at least, before a burst counts as chatty.",
+  chatty_gap_minutes:
+    "How long a pause, in minutes, between entries ends a chatty burst and starts a new group.",
   max_height:
     "Pixels. Only needed in Masonry and Panel views. In Sections views, resize the card with its handles.",
   group_device_actions:
@@ -246,6 +251,35 @@ const RULES_SCHEMA: Schema = [
         ],
       },
     },
+  },
+  {
+    type: "grid",
+    name: "",
+    schema: [
+      {
+        name: "chatty_min_events",
+        selector: {
+          number: {
+            min: LIMITS.chattyMinEvents[0],
+            max: LIMITS.chattyMinEvents[1],
+            step: 1,
+            mode: "box",
+          },
+        },
+      },
+      {
+        name: "chatty_gap_minutes",
+        selector: {
+          number: {
+            min: LIMITS.chattyGap[0],
+            max: LIMITS.chattyGap[1],
+            step: 1,
+            mode: "box",
+            unit_of_measurement: "min",
+          },
+        },
+      },
+    ],
   },
   { name: "show_actions", selector: { boolean: {} } },
   { name: "show_diagnostic", selector: { boolean: {} } },
