@@ -1,6 +1,7 @@
 import { ACTOR_ICONS, stateColor } from "./appearance";
 import type { ActionEvent } from "./trace";
 import type { Actor, AutomationRuns, HomeAssistant, TimelineItem } from "./types";
+import { t } from "./strings";
 
 /**
  * Most automation and script runs are plumbing: a helper toggled, a summary refreshed. Showing
@@ -36,11 +37,11 @@ function actionItem(
     name: say
       ? action.speakers.length
         ? names(hass, action.speakers)
-        : "Speaker"
-      : "Notification",
+        : t("Speaker", hass.locale?.language)
+      : t("Notification", hass.locale?.language),
     verb: say
-      ? `said “${action.text}”`
-      : `sent “${action.title ? `${action.title}: ` : ""}${action.text}”`,
+      ? t("said {text}", hass.locale?.language, { text: `“${action.text}”` })
+      : t("sent {text}", hass.locale?.language, { text: `“${action.title ? `${action.title}: ` : ""}${action.text}”` }),
     tone: "active",
     icon: say ? "mdi:bullhorn" : "mdi:bell-ring",
     fixedIcon: true,

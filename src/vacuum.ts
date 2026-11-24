@@ -1,5 +1,6 @@
 import { ALERT_COLOR, stateColor } from "./appearance";
 import type { Actor, Cause, HomeAssistant, TimelineItem, WhatHappenedConfig } from "./types";
+import { t } from "./strings";
 
 /**
  * Support for the TapoVac-ADV integration (`tapo_rv30`). The logbook only knows that the
@@ -111,25 +112,25 @@ function peopleActor(hass: HomeAssistant, people: string): Actor {
   };
 }
 
-function plannerActor(): Actor {
-  return { kind: "other", name: "Cleaning planner", icon: "mdi:calendar-clock" };
+function plannerActor(lang?: string): Actor {
+  return { kind: "other", name: t("Cleaning planner", lang), icon: "mdi:calendar-clock" };
 }
 
 function userActor(hass: HomeAssistant): Actor {
   return { kind: "user", name: hass.user?.name ?? "You" };
 }
 
-function runDetails(run: HistoryRun): string[] {
+function runDetails(run: HistoryRun, lang?: string): string[] {
   const details: string[] = [];
   if (run.minutes != null) details.push(`${run.minutes} min`);
   if (run.area != null) details.push(`${run.area} m²`);
-  if (run.emptied_bin) details.push("bin emptied");
+  if (run.emptied_bin) details.push(t("bin emptied", lang));
   return details;
 }
 
 /**
  * Build timeline items for one robot from its planner log and clean history. A run gives
- * two entries, "started cleaning" (rooms, who, why) and "finished cleaning" (duration,
+ * two entries, "started cleaning" (rooms, who, why) and t("finished cleaning", lang) (duration,
  * area, bin), because those are two things that happened at two different times.
  */
 export function vacuumItems(
@@ -140,6 +141,7 @@ export function vacuumItems(
   const stateObj = hass.states[data.entityId];
   const name = stateObj?.attributes.friendly_name ?? data.entityId;
   const useColor = config.state_color ?? true;
+  const lang = hass.locale?.language;
   const items: TimelineItem[] = [];
   const used = new Set<PlannerLogEntry>();
 
@@ -162,10 +164,10 @@ export function vacuumItems(
 
     let cause: Cause | undefined;
     if (start && parsed) {
-      cause = { actor: parsed.byUser ? userActor(hass) : plannerActor(), trigger: parsed.why };
+      cause = { actor: parsed.byUser ? userActor(hass) : plannerActor(lang), trigger: parsed.why };
     } else if (run.start_type != null && START_TYPES[run.start_type]) {
       cause = {
-        actor: { kind: "other", name: START_TYPES[run.start_type], icon: "mdi:gesture-tap" },
+        actor: { kind: "other", name: t(START_TYPES[run.start_type] as any, lang), icon: "mdi:gesture-tap" },
       };
     }
 
@@ -173,11 +175,11 @@ export function vacuumItems(
       ...base,
       key: `vac|${data.entityId}|start|${run.started}`,
       when: run.started * 1000,
-      verb: parsed?.names ? `started cleaning ${parsed.names}` : "started cleaning",
+      verb: parsed?.names ? t("started cleaning {rooms}", lang, { rooms: parsed.names }) : t("started cleaning", lang),
       tone: "active",
       phase: "start",
       icon: "mdi:robot-vacuum",
-      details: run.rule_name ? [`preset “${run.rule_name}”`] : undefined,
+      details: run.rule_name ? [t("preset {name}", lang, { name: `“${run.rule_name}”` })] : undefined,
       cause,
       accent: stateColor("vacuum", undefined, "cleaning", "active", useColor),
     });
@@ -188,14 +190,14 @@ export function vacuumItems(
       key: `vac|${data.entityId}|finish|${run.started}`,
       when: Math.max(endMs, run.started * 1000 + 1000),
       verb: failed
-        ? `stopped with error ${run.error}`
+        ? t("stopped with error {error}", lang, { error: String(run.error) })
         : parsed?.names
-          ? `finished cleaning ${parsed.names}`
-          : "finished cleaning",
+          ? t("finished cleaning {rooms}", lang, { rooms: parsed.names })
+          : t("finished cleaning", lang),
       tone: failed ? "alert" : "inactive",
       phase: "finish",
       icon: failed ? "mdi:robot-vacuum-alert" : "mdi:robot-vacuum",
-      details: runDetails(run),
+      details: runDetails(run, lang),
       accent: failed
         ? ALERT_COLOR
         : stateColor("vacuum", undefined, "docked", "inactive", useColor),
@@ -236,11 +238,11 @@ export function vacuumItems(
         ...base,
         key: `vac|${data.entityId}|log|${entry.ts}|docked`,
         when: entry.ts * 1000,
-        verb: "was sent home",
+        verb: t("was sent home", lang),
         tone: "neutral",
         icon: "mdi:robot-vacuum",
         details: [arrival.note.charAt(0).toUpperCase() + arrival.note.slice(1)],
-        cause: { actor: peopleActor(hass, arrival.people), trigger: "coming home" },
+        cause: { actor: peopleActor(hass, arrival.people), trigger: t("coming home", lang) },
         accent: stateColor("vacuum", undefined, "docked", "inactive", useColor),
       });
       continue;
@@ -250,12 +252,12 @@ export function vacuumItems(
       ...base,
       key: `vac|${data.entityId}|log|${entry.ts}|${entry.kind}`,
       when: entry.ts * 1000,
-      verb: parsed?.names ? `started cleaning ${parsed.names}` : "",
+      verb: parsed?.names ? t("started cleaning {rooms}", lang, { rooms: parsed.names }) : "",
       text: parsed?.names ? undefined : entry.text.replace(/\.$/, ""),
       tone,
       phase: entry.kind === "start" ? "start" : entry.kind === "done" ? "finish" : undefined,
       icon: entry.kind === "error" ? "mdi:robot-vacuum-alert" : "mdi:robot-vacuum",
-      cause: { actor: parsed?.byUser ? userActor(hass) : plannerActor(), trigger: parsed?.why },
+      cause: { actor: parsed?.byUser ? userActor(hass) : plannerActor(lang), trigger: parsed?.why },
       accent:
         tone === "alert"
           ? ALERT_COLOR

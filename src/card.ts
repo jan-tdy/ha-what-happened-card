@@ -66,7 +66,7 @@ export class WhatHappenedCard extends LitElement {
   private _registryRefs: unknown[] = [];
 
   public setConfig(config: WhatHappenedConfig): void {
-    if (!config || typeof config !== "object") throw new Error("Invalid configuration");
+    if (!config || typeof config !== "object") throw new Error(t("Invalid configuration", this._hass?.locale?.language));
     if (
       config.target !== undefined &&
       (typeof config.target !== "object" || config.target === null)
@@ -272,7 +272,7 @@ export class WhatHappenedCard extends LitElement {
       .catch((err: unknown) => {
         if (token !== this._subToken) return;
         this._loading = false;
-        this._error = err instanceof Error ? err.message : "Could not load the logbook";
+        this._error = err instanceof Error ? err.message : t("Could not load the logbook", this._hass?.locale?.language);
       });
   }
 
@@ -382,7 +382,7 @@ export class WhatHappenedCard extends LitElement {
             this._error
               ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
               : this._loading && total === 0
-                ? html`<div class="state">Loading…</div>`
+                ? html`<div class="state">${t("Loading…", this._hass?.locale?.language)}</div>`
                 : total === 0
                   ? this._renderEmpty(config)
                   : html`<ol>
@@ -396,13 +396,13 @@ export class WhatHappenedCard extends LitElement {
 
   private _renderEmpty(config: WhatHappenedConfig): TemplateResult {
     const hours = effectiveHours(config);
-    const span =
-      hours % 24 === 0 && hours > 24
-        ? `${hours / 24} days`
-        : hours === 1
-          ? "hour"
-          : `${hours} hours`;
-    const text = hours === 1 ? "No activity in the last hour" : `No activity in the last ${span}`;
+    const lang = this._hass?.locale?.language;
+    const span = hours % 24 === 0 && hours > 24
+      ? t("{days} days", lang, { days: hours / 24 })
+      : hours === 1
+        ? t("hour", lang)
+        : t("{hours} hours", lang, { hours });
+    const text = hours === 1 ? t("No activity in the last hour", lang) : t("No activity in the last {span}", lang, { span });
     return html`<div class="state">
       <ha-icon icon="mdi:timeline-clock-outline"></ha-icon>${text}
     </div>`;
@@ -514,15 +514,15 @@ export class WhatHappenedCard extends LitElement {
       <div class="secondary">
         ${
           actor
-            ? html`by${avatars && actor.kind === "user" ? this._renderAvatar(actor) : nothing}
+            ? html`${t("by", this._hass?.locale?.language)}${avatars && actor.kind === "user" ? this._renderAvatar(actor) : nothing}
               ${
                 interactive
                   ? this._actorLink(actor)
                   : html`<span title=${actor.detail ?? actor.name}>${actor.name}</span>`
               }`
             : nothing
-        }${via ? html`, via ${this._actorLink(via)}` : nothing}${actor && cause.trigger ? ", " : nothing}${
-          cause.trigger ? html`${actor ? "triggered by" : "by"} ${cause.trigger}` : nothing
+        }${via ? html`, ${t("via", this._hass?.locale?.language)} ${this._actorLink(via)}` : nothing}${actor && cause.trigger ? ", " : nothing}${
+          cause.trigger ? html`${t(actor ? "triggered by" : "by", this._hass?.locale?.language)} ${cause.trigger}` : nothing
         }
       </div>
     `;

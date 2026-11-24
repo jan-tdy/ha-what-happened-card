@@ -1,3 +1,4 @@
+import { t } from "./strings";
 import type { Actor, Cause, HomeAssistant, LogbookEntry } from "./types";
 
 const ENTITY_ID_RE = /\b([a-z_]+)\.([a-z0-9_]+)\b/g;
@@ -44,8 +45,8 @@ function rawTrigger(entry: LogbookEntry): string | undefined {
 }
 
 /** Make raw trigger descriptions read naturally. */
-export function friendlyTrigger(text: string): string {
-  return text.replace(/event 'automation_triggered'/g, "another automation");
+export function friendlyTrigger(text: string, lang?: string): string {
+  return text.replace(/event 'automation_triggered'/g, t("another automation", lang));
 }
 
 function triggerFrom(hass: HomeAssistant, entry: LogbookEntry): string | undefined {
@@ -53,7 +54,7 @@ function triggerFrom(hass: HomeAssistant, entry: LogbookEntry): string | undefin
   if (!raw && entry.context_message?.startsWith("triggered by ")) {
     raw = entry.context_message.slice("triggered by ".length);
   }
-  return raw ? friendlyTrigger(humanizeEntityIds(hass, raw)) : undefined;
+  return raw ? friendlyTrigger(humanizeEntityIds(hass, raw), hass.locale?.language) : undefined;
 }
 
 function userActor(hass: HomeAssistant, userId: string): Actor {
@@ -62,7 +63,7 @@ function userActor(hass: HomeAssistant, userId: string): Actor {
     return { kind: "user", name: person.name, entityId: person.entityId, picture: person.picture };
   }
   if (hass.user && hass.user.id === userId) return { kind: "user", name: hass.user.name };
-  return { kind: "user", name: "A user" };
+  return { kind: "user", name: t("A user", hass.locale?.language) };
 }
 
 function nameOf(hass: HomeAssistant, entityId: string | undefined, fallback?: string): string {
@@ -110,7 +111,7 @@ export function resolveCause(hass: HomeAssistant, entry: LogbookEntry): Cause | 
   if (eventType === "call_service" && entry.context_domain && entry.context_service) {
     const service = `${entry.context_domain}.${entry.context_service}`;
     if (entry.context_domain === "scene") {
-      return { actor: { kind: "scene", name: "A scene", detail: service } };
+      return { actor: { kind: "scene", name: t("A scene", hass.locale?.language), detail: service } };
     }
     return { actor: { kind: "service", name: service, detail: service } };
   }
@@ -143,5 +144,5 @@ export function runTrigger(hass: HomeAssistant, entry: LogbookEntry): string | u
     (entry.message?.startsWith("triggered by ")
       ? entry.message.slice("triggered by ".length)
       : undefined);
-  return raw ? friendlyTrigger(humanizeEntityIds(hass, raw)) : undefined;
+  return raw ? friendlyTrigger(humanizeEntityIds(hass, raw), hass.locale?.language) : undefined;
 }
