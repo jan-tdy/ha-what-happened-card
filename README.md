@@ -7,7 +7,6 @@ A live, resizable timeline for Home Assistant that tells you **what happened, wh
 
 ![Preview](docs/preview.png)
 
-
 If you found this useful, please consider starring the repo.
 
 ## Features
@@ -76,6 +75,8 @@ exclude_domains:
 | `activity`             | `meaningful`   | `meaningful` or `everything` (clocks, sensors, updates, …)                                                          |
 | `automation_runs`      | `actions`      | `actions`, `all` or `none` (see below)                                                                              |
 | `chatty`               | `summarize`    | Very frequent entities: `summarize`, `hide` or `show`                                                               |
+| `chatty_min_events`    | `10`           | Minimum entries, at a pace of one per hour or faster, before a burst counts as chatty, 2 – 100                      |
+| `chatty_gap_minutes`   | `60`           | A quiet gap of at least this long, in minutes, ends a chatty burst and starts a new one, 1 – 180                    |
 | `show_diagnostic`      | `false`        | Include diagnostic, configuration and hidden entities                                                               |
 | `hide_unavailable`     | `true`         | Hide `unavailable` / `unknown` states, and an entity coming back from them in the state it had before               |
 | `collapse_repeats`     | `true`         | Merge rapid repeats of the same event (shown as ×N)                                                                 |
@@ -157,6 +158,7 @@ Requires Home Assistant 2024.8 or newer.
 MIT
 
 ## Star history
+
 ## Star History
 
 <a href="https://www.star-history.com/?repos=jan-tdy%2Fha-what-happened-card&type=timeline&releases=&legend=bottom-right">

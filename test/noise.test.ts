@@ -97,6 +97,112 @@ describe("chatty entities", () => {
     );
     expect(items(few)).toHaveLength(6);
   });
+
+  it("splits a chatty entity into a separate group once it has been quiet for the gap", () => {
+    // Twelve changes a minute apart, a 70-minute silence, then twelve more a minute apart.
+    const recent = Array.from({ length: 12 }, (_, i) =>
+      entry({
+        ago: 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `r${i}`,
+      }),
+    );
+    const earlier = Array.from({ length: 12 }, (_, i) =>
+      entry({
+        ago: 12 * 60 + 70 * 60 + 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `e${i}`,
+      }),
+    );
+    const result = items([...recent, ...earlier]);
+    const summaries = result.filter((i) => i.name === "Date & Time");
+    expect(summaries).toHaveLength(2);
+    expect(summaries.map((i) => i.verb)).toEqual(["changed 12 times", "changed 12 times"]);
+    // Each group keeps its own identity, so the card can tell them apart.
+    expect(new Set(summaries.map((i) => i.key)).size).toBe(2);
+  });
+
+  it("a gap exactly as long as the threshold still starts a new group", () => {
+    // Ten changes a minute apart (1-10 min ago), then a gap of exactly 10 minutes, then ten
+    // more a minute apart (20-29 min ago): "at least" the configured gap must split, not only
+    // a gap strictly longer than it.
+    const recent = Array.from({ length: 10 }, (_, i) =>
+      entry({
+        ago: 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `r${i}`,
+      }),
+    );
+    const earlier = Array.from({ length: 10 }, (_, i) =>
+      entry({
+        ago: 20 * 60 + 60 * i,
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `e${i}`,
+      }),
+    );
+    const result = items([...recent, ...earlier], { chatty_gap_minutes: 10 });
+    const summaries = result.filter((i) => i.name === "Date & Time");
+    expect(summaries).toHaveLength(2);
+    expect(summaries.map((i) => i.verb)).toEqual(["changed 10 times", "changed 10 times"]);
+  });
+
+  it("only summarizes the bursts that are actually chatty, leaving a quiet trickle of the same entity alone", () => {
+    const burst = Array.from({ length: 12 }, (_, i) =>
+      entry({
+        ago: 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `b${i}`,
+      }),
+    );
+    // Three changes hours apart: too slow and too few to count as chatty on their own.
+    const trickle = [300, 600, 900].map((agoMinutes, i) =>
+      entry({
+        ago: agoMinutes * 60,
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `t${i}`,
+      }),
+    );
+    const result = items([...burst, ...trickle]).filter((i) => i.name === "Date & Time");
+    expect(result).toHaveLength(4); // one summary for the burst, three individual entries
+    expect(result[0].verb).toBe("changed 12 times");
+  });
+
+  it("the quiet gap is adjustable: a tighter one splits what the default would keep together", () => {
+    const runs = Array.from({ length: 12 }, (_, i) =>
+      entry({
+        ago: 900 * (i + 1),
+        entity_id: "automation.ai",
+        domain: "automation",
+        name: "AI summaries",
+        message: "triggered by time pattern",
+        source: "time pattern",
+      }),
+    );
+    const result = items(runs, { automation_runs: "all", chatty_gap_minutes: 10 });
+    // 15 minutes apart is already more than a 10-minute gap: nothing stays grouped.
+    expect(result).toHaveLength(12);
+  });
+
+  it("the minimum entry count is adjustable", () => {
+    const five = Array.from({ length: 5 }, (_, i) =>
+      entry({
+        ago: 60 * (i + 1),
+        entity_id: "sensor.date_time",
+        name: "Date & Time",
+        state: `s${i}`,
+      }),
+    );
+    expect(items(five)).toHaveLength(5); // below the default minimum of 10, shown as is
+    const result = items(five, { chatty_min_events: 5 });
+    expect(result).toHaveLength(1);
+    expect(result[0].verb).toBe("changed 5 times");
+  });
 });
 
 describe("bursts", () => {

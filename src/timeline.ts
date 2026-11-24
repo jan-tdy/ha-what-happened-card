@@ -42,13 +42,23 @@ export const DEFAULTS = {
   automation_runs: "actions",
   show_actions: true,
   chatty: "summarize",
+  chatty_min_events: 10,
+  // As long as the pace of one per hour or faster that qualifies a burst as chatty in the first
+  // place: a quiet stretch shorter than that is just the entity's normal rhythm, not a break.
+  chatty_gap_minutes: 60,
   show_diagnostic: false,
   collapse_repeats: true,
   group_device_actions: true,
   group_window_minutes: 3,
 } as const;
 
-export const LIMITS = { hours: [1, 720], entries: [1, 500], groupWindow: [1, 60] } as const;
+export const LIMITS = {
+  hours: [1, 720],
+  entries: [1, 500],
+  groupWindow: [1, 60],
+  chattyMinEvents: [2, 100],
+  chattyGap: [1, 180],
+} as const;
 
 const CHAIN_WINDOW_MS = 60 * 1000;
 const COLLAPSE_WINDOW_MS = 10 * 60 * 1000;
@@ -76,6 +86,14 @@ export function effectiveMaxEntries(config: WhatHappenedConfig): number {
 
 export function effectiveGroupWindowMinutes(config: WhatHappenedConfig): number {
   return clamp(config.group_window_minutes, LIMITS.groupWindow, DEFAULTS.group_window_minutes);
+}
+
+export function effectiveChattyMinEvents(config: WhatHappenedConfig): number {
+  return clamp(config.chatty_min_events, LIMITS.chattyMinEvents, DEFAULTS.chatty_min_events);
+}
+
+export function effectiveChattyGapMinutes(config: WhatHappenedConfig): number {
+  return clamp(config.chatty_gap_minutes, LIMITS.chattyGap, DEFAULTS.chatty_gap_minutes);
 }
 
 function domainOf(entry: LogbookEntry): string {
@@ -537,6 +555,8 @@ export function buildTimeline(
       config.chatty ?? DEFAULTS.chatty,
       picked,
       lang,
+      effectiveChattyGapMinutes(config),
+      effectiveChattyMinEvents(config),
     ),
     lang,
   );

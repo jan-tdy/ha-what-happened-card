@@ -133,6 +133,10 @@ export interface WhatHappenedConfig {
   automation_runs?: AutomationRuns;
   show_actions?: boolean;
   chatty?: ChattyMode;
+  /** Minimum entries before an entity's burst counts as chatty. */
+  chatty_min_events?: number;
+  /** A quiet stretch at least this long ends a chatty burst; the next entry starts a new one. */
+  chatty_gap_minutes?: number;
   show_diagnostic?: boolean;
   hide_unavailable?: boolean;
   collapse_repeats?: boolean;

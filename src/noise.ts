@@ -11,6 +11,7 @@ import type { HomeAssistant, TimelineItem } from "./types";
  */
 
 export const CHATTY_MIN_EVENTS = 10;
+export const CHATTY_GAP_MINUTES = 10;
 export const BURST_WINDOW_MS = 10_000;
 export const BURST_MIN_ITEMS = 3;
 
@@ -23,9 +24,13 @@ function keyOf(item: TimelineItem): string {
 }
 
 /**
- * Entities with at least 10 entries that happened at a pace of one per hour or faster,
- * measured over the span they were actually active (so a job that ran every 15 minutes for
- * three hours counts, a lamp switched ten times over a whole day does not).
+ * Entities with at least `minEvents` entries that happened at a pace of one per hour or
+ * faster, measured over the span they were actually active (so a job that ran every 15
+ * minutes for three hours counts, a lamp switched ten times over a whole day does not).
+ *
+ * A quiet stretch of at least `gapMinutes` between two entries of the same entity ends the
+ * burst: a sensor that fired all evening, went quiet overnight, then fired all morning again
+ * is two bursts, each judged and reported on its own, not one entry spanning the whole night.
  */
 export function summarizeChatty(
   items: TimelineItem[],
@@ -33,8 +38,11 @@ export function summarizeChatty(
   /** Entities the user asked to see: never summarized or hidden. */
   exempt: ReadonlySet<string> = new Set(),
   lang?: string,
+  gapMinutes: number = CHATTY_GAP_MINUTES,
+  minEvents: number = CHATTY_MIN_EVENTS,
 ): TimelineItem[] {
   if (mode === "show") return items;
+  const gapMs = gapMinutes * 60_000;
   const groups = new Map<string, TimelineItem[]>();
   for (const item of items) {
     if (item.rich || (item.entityId && exempt.has(item.entityId))) continue;
@@ -44,32 +52,44 @@ export function summarizeChatty(
     else groups.set(key, [item]);
   }
 
-  const chatty = new Set<string>();
-  for (const [key, list] of groups) {
-    if (list.length < CHATTY_MIN_EVENTS) continue;
-    const spanHours = (list[0].when - list[list.length - 1].when) / 3_600_000;
-    if (spanHours <= list.length) chatty.add(key);
+  // Split each entity's own history (newest first) into bursts separated by a quiet gap.
+  const burstOf = new Map<TimelineItem, TimelineItem[]>();
+  for (const list of groups.values()) {
+    let burst: TimelineItem[] = [];
+    for (const item of list) {
+      if (burst.length && burst[burst.length - 1].when - item.when >= gapMs) {
+        settleBurst(burst);
+        burst = [];
+      }
+      burst.push(item);
+    }
+    settleBurst(burst);
   }
-  if (chatty.size === 0) return items;
+  function settleBurst(burst: TimelineItem[]): void {
+    if (burst.length < minEvents) return;
+    const spanHours = (burst[0].when - burst[burst.length - 1].when) / 3_600_000;
+    if (spanHours > burst.length) return;
+    for (const item of burst) burstOf.set(item, burst);
+  }
+  if (burstOf.size === 0) return items;
 
   const out: TimelineItem[] = [];
-  const emitted = new Set<string>();
+  const emitted = new Set<TimelineItem[]>();
   for (const item of items) {
-    const key = keyOf(item);
-    if (item.rich || !chatty.has(key) || (item.entityId && exempt.has(item.entityId))) {
+    const burst = burstOf.get(item);
+    if (!burst || (item.entityId && exempt.has(item.entityId))) {
       out.push(item);
       continue;
     }
-    if (emitted.has(key) || mode === "hide") continue;
-    emitted.add(key);
-    const group = groups.get(key)!;
-    const n = group.length; // `item` is the newest because input is sorted newest first
+    if (emitted.has(burst) || mode === "hide") continue;
+    emitted.add(burst);
+    const n = burst.length; // `item` is the newest because input is sorted newest first
     // An event entity only fires, so "changed" says nothing: name what it reported.
     const event = item.domain === "event";
-    const sameVerb = event && group.every((g) => g.verb === item.verb);
+    const sameVerb = event && burst.every((g) => g.verb === item.verb);
     out.push({
       ...item,
-      key: `chatty|${key}`,
+      key: `chatty|${keyOf(item)}|${burst[0].when}`,
       verb: item.isRun
         ? t("was triggered {n} times", lang, { n })
         : sameVerb
